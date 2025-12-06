@@ -455,7 +455,18 @@ impl Nvme {
     pub async fn init_with_queues(&self) -> BTreeMap<u32, NvmeNamespace> {
         log::trace!("preinit");
 
-        self.identify_controller().await;
+        let controller_data = self.identify_controller().await;
+        let num_queues_wanted = num_cpus::get().min((controller_data.oncs as usize >> 7) & 0x1FF);
+
+        let comp = self.submit_and_complete_admin_command(|cid| {
+            NvmeCmd::set_features_num_queues(cid, num_queues_wanted as u16, num_queues_wanted as u16)
+        }).await;
+
+        let queues_created = (comp.cdw0 & 0xFFFF) + 1;
+        let num_cqs = queues_created;
+        let num_sqs = (comp.cdw0 >> 16) + 1;
+
+        log::info!("Created {} I/O submission queues and {} I/O completion queues", num_sqs, num_cqs);
 
         let nsids = self.identify_namespace_list(0).await;
 
@@ -467,21 +478,22 @@ impl Nvme {
             namespaces.insert(nsid, self.identify_namespace(nsid).await);
         }
 
-        // TODO: Multiple queues
-        let cq = self.create_io_completion_queue(1, Some(0)).await;
-        log::trace!("created compq");
-        let sq = self.create_io_submission_queue(1, 1).await;
-        log::trace!("created subq");
-        self.thread_ctxts
-            .read()
-            .get(&0)
-            .unwrap()
-            .lock()
-            .queues
-            .borrow_mut()
-            .insert(1, (sq, cq));
-        self.sq_ivs.write().insert(1, 0);
-        self.cq_ivs.write().insert(1, 0);
+        for i in 1..=num_cqs {
+            let cq = self.create_io_completion_queue(i as u16, Some(i as u16)).await;
+            log::trace!("created compq {}", i);
+            let sq = self.create_io_submission_queue(i as u16, i as u16).await;
+            log::trace!("created subq {}", i);
+            self.thread_ctxts
+                .read()
+                .get(&0)
+                .unwrap()
+                .lock()
+                .queues
+                .borrow_mut()
+                .insert(i as u16, (sq, cq));
+            self.sq_ivs.write().insert(i as u16, i as u16);
+            self.cq_ivs.write().insert(i as u16, i as u16);
+        }
 
         namespaces
     }

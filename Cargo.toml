@@ -42,6 +42,7 @@ members = [
     "storage/ided",
     "storage/lived",          # TODO: not really a driver...
     "storage/nvmed",
+    "nvme-driver",
     "storage/usbscsid",
     "storage/virtio-blkd",
 

@@ -16,8 +16,35 @@ pub struct IdentifyControllerData {
     pub model_no: [u8; 48],
     /// ASCII
     pub firmware_rev: [u8; 8],
-    // TODO: Lots of fields
-    pub _4k_pad: [u8; 4096 - 72],
+    pub rab: u8,
+    pub ieee: [u8; 3],
+    pub cmic: u8,
+    pub mdts: u8,
+    pub cntlid: u16,
+    pub ver: u32,
+    pub rtd3r: u32,
+    pub rtd3e: u32,
+    pub oaes: u32,
+    pub ctratt: u32,
+    pub _rsvd1: [u8; 12],
+    pub fguid: [u8; 16],
+    pub _rsvd2: [u8; 112],
+    pub oncs: u16,
+    pub fuses: u16,
+    pub fna: u8,
+    pub vwc: u8,
+    pub awun: u16,
+    pub awupf: u16,
+    pub nvscc: u8,
+    pub nwpc: u8,
+    pub acwu: u16,
+    pub _rsvd3: [u8; 2],
+    pub sqes: u8,
+    pub cqes: u8,
+    pub maxcmd: u16,
+    pub nn: u32,
+    pub oncs_rsvd: [u8; 204],
+    pub _4k_pad: [u8; 4096 - 516],
 }
 
 /// See NVME spec section 5.15.2.1.
@@ -151,9 +178,9 @@ impl LbaFormat {
 
 impl Nvme {
     /// Returns the serial number, model, and firmware, in that order.
-    pub async fn identify_controller(&self) {
+    pub async fn identify_controller(&self) -> Dma<IdentifyControllerData> {
         // TODO: Use same buffer
-        let data: Dma<IdentifyControllerData> = unsafe { Dma::zeroed().unwrap().assume_init() };
+        let mut data: Dma<IdentifyControllerData> = unsafe { Dma::zeroed().unwrap().assume_init() };
 
         // println!("  - Attempting to identify controller");
         let comp = self
@@ -179,6 +206,7 @@ impl Nvme {
             serial,
             firmware,
         );
+        data
     }
     pub async fn identify_namespace_list(&self, base: u32) -> Vec<u32> {
         // TODO: Use buffer

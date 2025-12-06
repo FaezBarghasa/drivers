@@ -124,6 +124,24 @@ impl NvmeCmd {
         }
     }
 
+    pub fn set_features_num_queues(cid: u16, num_sq: u16, num_cq: u16) -> Self {
+        Self {
+            opcode: 9, // Set Features
+            flags: 0,
+            cid,
+            nsid: 0,
+            _rsvd: 0,
+            mptr: 0,
+            dptr: [0, 0],
+            cdw10: 7, // Number of Queues feature identifier
+            cdw11: (((num_cq - 1) as u32) << 16) | ((num_sq - 1) as u32),
+            cdw12: 0,
+            cdw13: 0,
+            cdw14: 0,
+            cdw15: 0,
+        }
+    }
+
     pub fn io_read(cid: u16, nsid: u32, lba: u64, blocks_1: u16, ptr0: u64, ptr1: u64) -> Self {
         Self {
             opcode: 2,
