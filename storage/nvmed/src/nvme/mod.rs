@@ -3,8 +3,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 use std::fs::File;
 use std::iter;
-use std::sync::atomic::AtomicU16;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
+use std::thread;
 
 use parking_lot::{Mutex, ReentrantMutex, RwLock};
 
@@ -128,6 +129,11 @@ pub enum FullSqHandling {
     Wait,
 }
 
+thread_local! {
+    // TODO: But what if the thread ID is not the same as the interrupt vector?
+    static THREAD_IV: RefCell<Option<u16>> = RefCell::new(None);
+}
+
 impl Nvme {
     pub fn new(
         address: usize,
@@ -178,8 +184,8 @@ impl Nvme {
         (&mut *(addr as *mut Mmio<u32>)).write(value);
     }
     fn cur_thread_ctxt(&self) -> Arc<ReentrantMutex<ThreadCtxt>> {
-        // TODO: multi-threading
-        Arc::clone(self.thread_ctxts.read().get(&0).unwrap())
+        let iv = THREAD_IV.with(|value| *value.borrow().as_ref().unwrap());
+        Arc::clone(self.thread_ctxts.read().get(&iv).unwrap())
     }
 
     pub unsafe fn submission_queue_tail(&self, qid: u16, tail: u16) {
@@ -539,6 +545,48 @@ impl Nvme {
         }
     }
 
+    async fn namespace_rw_phys(
+        &self,
+        namespace: &NvmeNamespace,
+        lba: u64,
+        address: usize,
+        size: usize,
+        write: bool,
+    ) -> Result<()> {
+        let block_size = namespace.block_size as usize;
+        let blocks = (size + block_size - 1) / block_size;
+
+        assert!(blocks > 0);
+        assert!(blocks <= 0x1_0000);
+
+        let (ptr0, ptr1) = if size <= 4096 {
+            (address as u64, 0)
+        } else {
+            // TODO: support for more than one page
+            return Err(Error::new(EIO));
+        };
+
+        let mut cmd = NvmeCmd::default();
+        let comp = self
+            .submit_and_complete_command(1, |cid| {
+                cmd = if write {
+                    NvmeCmd::io_write(cid, namespace.id, lba, (blocks - 1) as u16, ptr0, ptr1)
+                } else {
+                    NvmeCmd::io_read(cid, namespace.id, lba, (blocks - 1) as u16, ptr0, ptr1)
+                };
+                cmd.clone()
+            })
+            .await;
+
+        let status = comp.status >> 1;
+        if status == 0 {
+            Ok(())
+        } else {
+            log::error!("command {:#x?} failed with status {:#x}", cmd, status);
+            Err(Error::new(EIO))
+        }
+    }
+
     pub async fn namespace_read(
         &self,
         namespace: &NvmeNamespace,
@@ -576,7 +624,7 @@ impl Nvme {
         let ctxt = self.cur_thread_ctxt();
         let ctxt = ctxt.lock();
 
-        let block_size = namespace.block_size as usize;
+        let block_size = namespace.block__size as usize;
 
         for chunk in buf.chunks(/* TODO: buf len */ 8192) {
             let blocks = (chunk.len() + block_size - 1) / block_size;
@@ -593,5 +641,27 @@ impl Nvme {
         }
 
         Ok(buf.len())
+    }
+
+    pub async fn namespace_read_phys(
+        &self,
+        namespace: &NvmeNamespace,
+        lba: u64,
+        address: usize,
+        size: usize,
+    ) -> Result<usize> {
+        self.namespace_rw_phys(namespace, lba, address, size, false).await?;
+        Ok(size)
+    }
+
+    pub async fn namespace_write_phys(
+        &self,
+        namespace: &NvmeNamespace,
+        lba: u64,
+        address: usize,
+        size: usize,
+    ) -> Result<usize> {
+        self.namespace_rw_phys(namespace, lba, address, size, true).await?;
+        Ok(size)
     }
 }

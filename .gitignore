@@ -8,3 +8,4 @@ target/
 .vs/
 # Local settings folder for the devcontainer extension that most IDEs support.
 .devcontainer/
+/AGENTS.md

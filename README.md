@@ -97,3 +97,11 @@ To learn how to do development with this system component inside the Redox build
 To build this system component you need to download the Redox build system, you can learn how to do it on the [Building Redox](https://doc.redox-os.org/book/podman-build.html) page.
 
 This is necessary because they only work with cross-compilation to a Redox virtual machine, but you can do some testing from Linux.
+
+#### Linux Dependencies
+
+If you are compiling for Linux (e.g. for testing), you may need to install SDL2:
+
+- **Debian/Ubuntu**: `sudo apt-get install libsdl2-dev`
+- **Fedora**: `sudo dnf install SDL2-devel`
+- **Arch Linux**: `sudo pacman -S sdl2`

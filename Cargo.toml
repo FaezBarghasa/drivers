@@ -35,6 +35,7 @@ members = [
     "net/rtl8139d",
     "net/rtl8168d",
     "net/virtio-netd",
+    "net/bbrv3-rs",
 
     "storage/ahcid",
     "storage/bcm2835-sdhcid",

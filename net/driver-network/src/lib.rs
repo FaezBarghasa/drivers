@@ -42,6 +42,7 @@ pub struct NetworkScheme<T: NetworkAdapter> {
 enum Handle {
     Data,
     Mac,
+    Bbr,
 }
 
 impl<T: NetworkAdapter> NetworkScheme<T> {
@@ -159,6 +160,7 @@ impl<T: NetworkAdapter> SchemeBlock for NetworkScheme<T> {
         let (handle, flags) = match path {
             "" => (Handle::Data, NewFdFlags::empty()),
             "mac" => (Handle::Mac, NewFdFlags::POSITIONED),
+            "bbr" => (Handle::Bbr, NewFdFlags::POSITIONED),
             _ => return Err(Error::new(EINVAL)),
         };
 
@@ -183,6 +185,14 @@ impl<T: NetworkAdapter> SchemeBlock for NetworkScheme<T> {
             Handle::Data => {}
             Handle::Mac => {
                 let data = &self.adapter.mac_address()[offset as usize..];
+                let i = cmp::min(buf.len(), data.len());
+                buf[..i].copy_from_slice(&data[..i]);
+                return Ok(Some(i));
+            }
+            Handle::Bbr => {
+                // This is a placeholder. A real implementation would get the
+                // BBR metrics from the TCP stack.
+                let data = b"BBRv3 metrics (placeholder)";
                 let i = cmp::min(buf.len(), data.len());
                 buf[..i].copy_from_slice(&data[..i]);
                 return Ok(Some(i));
@@ -213,6 +223,7 @@ impl<T: NetworkAdapter> SchemeBlock for NetworkScheme<T> {
         match handle {
             Handle::Data => {}
             Handle::Mac { .. } => return Err(Error::new(EINVAL)),
+            Handle::Bbr { .. } => return Err(Error::new(EINVAL)),
         }
 
         Ok(Some(self.adapter.write_packet(buf)?))
@@ -244,6 +255,7 @@ impl<T: NetworkAdapter> SchemeBlock for NetworkScheme<T> {
         let path = match handle {
             Handle::Data { .. } => &b""[..],
             Handle::Mac { .. } => &b"mac"[..],
+            Handle::Bbr { .. } => &b"bbr"[..],
         };
 
         j = 0;
@@ -266,6 +278,10 @@ impl<T: NetworkAdapter> SchemeBlock for NetworkScheme<T> {
             Handle::Mac { .. } => {
                 stat.st_mode = MODE_FILE | 0o400;
                 stat.st_size = 6;
+            }
+            Handle::Bbr { .. } => {
+                stat.st_mode = MODE_FILE | 0o400;
+                stat.st_size = 0;
             }
         }
 

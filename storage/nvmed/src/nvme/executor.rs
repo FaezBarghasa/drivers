@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use executor::{Hardware, LocalExecutor};
 
-use super::{CmdId, CqId, Nvme, NvmeCmd, NvmeComp, SqId};
+use super::{CmdId, CqId, Nvme, NvmeCmd, NvmeComp, SqId, THREAD_IV};
 
 pub struct NvmeHw;
 
@@ -78,5 +78,6 @@ pub type NvmeExecutor = LocalExecutor<NvmeHw>;
 pub fn init(nvme: Arc<Nvme>, iv: u16, intx: bool, irq_handle: File) -> Rc<LocalExecutor<NvmeHw>> {
     let this = Rc::new(executor::init_raw(nvme, iv, intx, irq_handle));
     THE_EXECUTOR.with(|exec| *exec.borrow_mut() = Some(Rc::clone(&this)));
+    THREAD_IV.with(|thread_iv| *thread_iv.borrow_mut() = Some(iv));
     this
 }

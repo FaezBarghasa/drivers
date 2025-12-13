@@ -4,3 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0"
+event = "0.5"
+log = "0.4"
+nvme = { path = "../../kernel/nvme" }
+redox_rt = "0.1"
+redox-log = { version = "0.1", features = ["std"] }
+libredox = "0.1"
+spin = "0.9"
+syscall = "0.5"
+num_cpus = "1.13"

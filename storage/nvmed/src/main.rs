@@ -102,6 +102,11 @@ fn get_int_method(
     }
 }
 
+trait ZeroCopyDisk: Disk {
+    fn read_phys(&mut self, block: u64, address: usize, size: usize) -> impl std::future::Future<Output = syscall::Result<usize>>;
+    fn write_phys(&mut self, block: u64, address: usize, size: usize) -> impl std::future::Future<Output = syscall::Result<usize>>;
+}
+
 struct NvmeDisk {
     nvme: Arc<Nvme>,
     ns: NvmeNamespace,
@@ -122,6 +127,16 @@ impl Disk for NvmeDisk {
 
     async fn write(&mut self, block: u64, buffer: &[u8]) -> syscall::Result<usize> {
         self.nvme.namespace_write(&self.ns, block, buffer).await
+    }
+}
+
+impl ZeroCopyDisk for NvmeDisk {
+    async fn read_phys(&mut self, block: u64, address: usize, size: usize) -> syscall::Result<usize> {
+        self.nvme.namespace_read_phys(&self.ns, block, address, size).await
+    }
+
+    async fn write_phys(&mut self, block: u64, address: usize, size: usize) -> syscall::Result<usize> {
+        self.nvme.namespace_write_phys(&self.ns, block, address, size).await
     }
 }
 
