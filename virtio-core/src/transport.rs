@@ -5,7 +5,7 @@ use common::dma::Dma;
 use event::RawEventQueue;
 
 use core::mem::size_of;
-use core::sync::atomic::{AtomicU16, Ordering};
+use core::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 
 use std::fs::File;
 use std::future::Future;
@@ -109,16 +109,19 @@ impl<'a> Future for PendingRequest<'a> {
 
         if table_index == self.first_descriptor {
             // The request has been completed; recycle the descriptors used.
+            let mut total_bytes = 0;
             while self.queue.descriptor[table_index as usize]
                 .flags()
                 .contains(DescriptorFlags::NEXT)
             {
                 let next_index = self.queue.descriptor[table_index as usize].next();
+                total_bytes += self.queue.descriptor[table_index as usize].size();
                 self.queue.descriptor_stack.push(table_index as u16);
                 table_index = next_index.into();
             }
 
             // Push the last descriptor.
+            total_bytes += self.queue.descriptor[table_index as usize].size();
             self.queue.descriptor_stack.push(table_index as u16);
             self.queue
                 .waker
@@ -127,6 +130,7 @@ impl<'a> Future for PendingRequest<'a> {
                 .remove(&self.first_descriptor);
 
             self.queue.used_head.store(used_head, Ordering::SeqCst);
+            self.queue.in_flight_bytes.fetch_sub(total_bytes as u64, Ordering::SeqCst);
             return Poll::Ready(written);
         } else {
             return Poll::Pending;
@@ -142,6 +146,7 @@ pub struct Queue<'a> {
     pub available: Available<'a>,
     pub used_head: AtomicU16,
     vector: u16,
+    in_flight_bytes: AtomicU64,
 
     notification_bell: Box<dyn NotifyBell>,
     descriptor_stack: crossbeam_queue::SegQueue<u16>,
@@ -175,12 +180,14 @@ impl<'a> Queue<'a> {
             used_head: AtomicU16::new(0),
             sref: sref.clone(),
             vector,
+            in_flight_bytes: AtomicU64::new(0),
         })
     }
 
     fn reinit(&self) {
         self.used_head.store(0, Ordering::SeqCst);
         self.available.set_head_idx(0);
+        self.in_flight_bytes.store(0, Ordering::SeqCst);
 
         // Drain all of the available descriptors.
         while let Some(_) = self.descriptor_stack.pop() {}
@@ -193,9 +200,11 @@ impl<'a> Queue<'a> {
     pub fn send(&self, chain: Vec<Buffer>) -> PendingRequest<'a> {
         let mut first_descriptor: Option<usize> = None;
         let mut last_descriptor: Option<usize> = None;
+        let mut total_bytes = 0;
 
         for buffer in chain.iter() {
             let descriptor = self.descriptor_stack.pop().unwrap() as usize;
+            total_bytes += buffer.size;
 
             if first_descriptor.is_none() {
                 first_descriptor = Some(descriptor);
@@ -224,6 +233,7 @@ impl<'a> Queue<'a> {
             .set_table_index(first_descriptor as u16);
 
         self.available.set_head_idx(index as u16 + 1);
+        self.in_flight_bytes.fetch_add(total_bytes as u64, Ordering::SeqCst);
         self.notification_bell.ring(self.queue_index);
 
         PendingRequest {
@@ -235,6 +245,10 @@ impl<'a> Queue<'a> {
     /// Returns the number of descriptors in the descriptor table of this queue.
     pub fn descriptor_len(&self) -> usize {
         self.descriptor.len()
+    }
+
+    pub fn in_flight(&self) -> u64 {
+        self.in_flight_bytes.load(Ordering::SeqCst)
     }
 }
 

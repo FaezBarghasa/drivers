@@ -7,10 +7,12 @@ use common::dma::Dma;
 use virtio_core::spec::{Buffer, ChainBuilder, DescriptorFlags};
 use virtio_core::transport::Queue;
 
-use crate::{VirtHeader, MAX_BUFFER_LEN};
+use crate::{VirtHeader, MAX_BUFFER_LEN, ipv6::Ipv6};
 
 pub struct VirtioNet<'a> {
     mac_address: [u8; 6],
+    ipv4_address: [u8; 4],
+    ipv6: Ipv6,
 
     /// Reciever Queue.
     rx: Arc<Queue<'a>>,
@@ -23,7 +25,13 @@ pub struct VirtioNet<'a> {
 }
 
 impl<'a> VirtioNet<'a> {
-    pub fn new(mac_address: [u8; 6], rx: Arc<Queue<'a>>, tx: Arc<Queue<'a>>) -> Self {
+    pub fn new(
+        mac_address: [u8; 6],
+        rx: Arc<Queue<'a>>,
+        tx: Arc<Queue<'a>>,
+        global_ipv6: [u8; 16],
+        unique_local_ipv6: [u8; 16],
+    ) -> Self {
         // Populate all of the `rx_queue` with buffers to maximize performence.
         let mut rx_buffers = vec![];
         for i in 0..(rx.descriptor_len() as usize) {
@@ -40,8 +48,12 @@ impl<'a> VirtioNet<'a> {
             let _ = rx.send(chain);
         }
 
+        let ipv6 = Ipv6::new(mac_address, global_ipv6, unique_local_ipv6);
+
         Self {
             mac_address,
+            ipv4_address: [10, 0, 2, 15],
+            ipv6,
 
             rx,
             rx_buffers,
@@ -77,6 +89,7 @@ impl<'a> VirtioNet<'a> {
         target[..payload_size].copy_from_slice(&packet);
 
         self.recv_head = self.rx.used.head_index();
+
         payload_size
     }
 }
@@ -84,6 +97,22 @@ impl<'a> VirtioNet<'a> {
 impl<'a> NetworkAdapter for VirtioNet<'a> {
     fn mac_address(&mut self) -> [u8; 6] {
         self.mac_address
+    }
+    
+    fn ipv4_address(&mut self) -> [u8; 4] {
+        self.ipv4_address
+    }
+
+    fn ipv6_address(&mut self) -> [u8; 16] {
+        self.ipv6.link_local
+    }
+
+    fn ipv6_address_global(&mut self) -> [u8; 16] {
+        self.ipv6.global
+    }
+
+    fn ipv6_address_unique_local(&mut self) -> [u8; 16] {
+        self.ipv6.unique_local
     }
 
     fn available_for_read(&mut self) -> usize {
@@ -101,7 +130,7 @@ impl<'a> NetworkAdapter for VirtioNet<'a> {
         }
     }
 
-    fn write_packet(&mut self, buffer: &[u8]) -> syscall::Result<usize> {
+    fn write_packet(&mut self, buffer: &[u8], _pacing_rate: u64) -> syscall::Result<usize> {
         let header = unsafe { Dma::<VirtHeader>::zeroed()?.assume_init() };
 
         let mut payload = unsafe { Dma::<[u8]>::zeroed_slice(buffer.len())?.assume_init() };
@@ -114,5 +143,9 @@ impl<'a> NetworkAdapter for VirtioNet<'a> {
 
         futures::executor::block_on(self.tx.send(chain));
         Ok(buffer.len())
+    }
+    
+    fn in_flight(&self) -> u64 {
+        self.tx.in_flight()
     }
 }

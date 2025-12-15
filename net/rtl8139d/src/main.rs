@@ -129,6 +129,9 @@ fn daemon(daemon: redox_daemon::Daemon) -> ! {
 
     let mut scheme = NetworkScheme::new(device, format!("network.{name}"));
 
+    log::info!("rtl8139d: BBRv3 congestion control enabled");
+    log::info!("rtl8139d: Monitoring available at network.{name}:bbr and network.{name}:bbr_raw");
+
     user_data! {
         enum Source {
             Irq,

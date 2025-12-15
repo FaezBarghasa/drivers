@@ -1,0 +1,16 @@
+[package]
+name = "netutils"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = "0.4"
+redox_syscall = "0.5"
+libredox = "0.1.3"
+redox-daemon = "0.1"
+common = { path = "../../common" }
+
+[features]
+default = ["ping", "ping6"]
+ping = []
+ping6 = []

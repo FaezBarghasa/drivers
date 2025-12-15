@@ -1,0 +1,190 @@
+[package]
+name = "redox-bsp-generic"
+version = "0.1.0"
+edition = "2021"
+authors = ["RedoxOS Contributors"]
+description = "Generic Board Support Package for Redox OS embedded systems"
+
+[features]
+default = []
+
+# ============================================================
+# ESP32 Family
+# ============================================================
+esp32-devkit = ["esp32"]
+esp32-s3-devkit = ["esp32-s3"]
+esp32-c3-devkit = ["esp32-c3"]
+esp32 = ["xtensa"]
+esp32-s2 = ["xtensa"]
+esp32-s3 = ["xtensa"]
+esp32-c3 = ["riscv32"]
+esp32-c6 = ["riscv32"]
+
+# ============================================================
+# STM32 Family
+# ============================================================
+stm32f4-discovery = ["stm32f4", "armv7m"]
+stm32f1-bluepill = ["stm32f1", "armv7m"]
+stm32h743-nucleo = ["stm32h7", "armv7m"]
+stm32f1 = ["armv7m"]
+stm32f4 = ["armv7m"]
+stm32f7 = ["armv7m"]
+stm32h7 = ["armv7m"]
+stm32l4 = ["armv7m"]
+stm32g0 = ["armv7m"]
+stm32g4 = ["armv7m"]
+
+# ============================================================
+# Teensy Family
+# ============================================================
+teensy-40 = ["armv7m", "imxrt1062"]
+teensy-41 = ["armv7m", "imxrt1062"]
+teensy-36 = ["armv7m", "mk66fx"]
+teensy-32 = ["armv7m", "mk20dx"]
+imxrt1062 = []
+mk66fx = []
+mk20dx = []
+
+# ============================================================
+# Raspberry Pi Family
+# ============================================================
+rpi-zero = ["armv6", "bcm2835"]
+rpi-zero-w = ["armv6", "bcm2835"]
+rpi-zero-2w = ["aarch64", "bcm2710"]
+rpi-1 = ["armv6", "bcm2835"]
+rpi-2 = ["armv7", "bcm2836"]
+rpi-3 = ["aarch64", "bcm2837"]
+rpi-4 = ["aarch64", "bcm2711"]
+rpi-5 = ["aarch64", "bcm2712"]
+rpi-pico = ["armv7m", "rp2040"]
+rpi-pico-w = ["armv7m", "rp2040"]
+rp2040 = []
+bcm2835 = []
+bcm2836 = []
+bcm2837 = []
+bcm2710 = []
+bcm2711 = []
+bcm2712 = []
+
+# ============================================================
+# Radxa Boards
+# ============================================================
+radxa-zero = ["aarch64", "s905y2"]
+radxa-rock-4 = ["aarch64", "rk3399"]
+radxa-rock-5a = ["aarch64", "rk3588s"]
+radxa-rock-5b = ["aarch64", "rk3588"]
+radxa-cm5 = ["aarch64", "rk3588s"]
+
+# ============================================================
+# ODROID Boards
+# ============================================================
+odroid-c4 = ["aarch64", "s905x3"]
+odroid-n2 = ["aarch64", "s922x"]
+odroid-m1 = ["aarch64", "rk3568"]
+odroid-xu4 = ["armv7", "exynos5422"]
+odroid-h3 = ["x86_64"]
+
+# ============================================================
+# Pine64 Boards
+# ============================================================
+pinebook-pro = ["aarch64", "rk3399"]
+pinephone-pro = ["aarch64", "rk3399"]
+rock64 = ["aarch64", "rk3328"]
+rockpro64 = ["aarch64", "rk3399"]
+star64 = ["riscv64", "jh7110"]
+quartz64 = ["aarch64", "rk3566"]
+
+# ============================================================
+# Orange Pi Boards
+# ============================================================
+orange-pi-zero = ["armv7", "h2plus"]
+orange-pi-zero2 = ["aarch64", "h616"]
+orange-pi-5 = ["aarch64", "rk3588s"]
+orange-pi-5-plus = ["aarch64", "rk3588"]
+orange-pi-r1-plus = ["aarch64", "rk3328"]
+
+# ============================================================
+# NanoPi Boards
+# ============================================================
+nanopi-r2s = ["aarch64", "rk3328"]
+nanopi-r4s = ["aarch64", "rk3399"]
+nanopi-r5s = ["aarch64", "rk3568"]
+nanopi-r6s = ["aarch64", "rk3588s"]
+nanopi-neo = ["armv7", "h3"]
+nanopi-neo2 = ["aarch64", "h5"]
+
+# ============================================================
+# Banana Pi Boards
+# ============================================================
+banana-pi-m5 = ["aarch64", "s905x3"]
+banana-pi-r3 = ["aarch64", "mt7986"]
+banana-pi-r4 = ["aarch64", "mt7988"]
+banana-pi-m7 = ["aarch64", "rk3588"]
+
+# ============================================================
+# BeagleBone
+# ============================================================
+beaglebone-black = ["armv7", "am335x"]
+beaglebone-ai = ["aarch64", "am5729"]
+am335x = []
+am5729 = []
+
+# ============================================================
+# SiFive
+# ============================================================
+sifive-hifive1 = ["riscv32", "fe310"]
+fe310 = []
+
+# ============================================================
+# SoC Definitions
+# ============================================================
+# Allwinner
+h2plus = []
+h3 = []
+h5 = []
+h6 = []
+h616 = []
+a64 = []
+
+# Rockchip
+rk3328 = []
+rk3399 = []
+rk3566 = []
+rk3568 = []
+rk3588 = []
+rk3588s = []
+
+# Amlogic
+s905x3 = []
+s905y2 = []
+s922x = []
+
+# Samsung
+exynos5422 = []
+
+# MediaTek
+mt7986 = []
+mt7988 = []
+
+# StarFive
+jh7110 = []
+
+# ============================================================
+# Architecture Features
+# ============================================================
+armv6 = []
+armv7 = []
+armv7m = []
+aarch64 = []
+riscv32 = []
+riscv64 = []
+xtensa = []
+x86_64 = []
+
+[dependencies]
+redox-hal = { path = "../redox-hal", features = ["full"] }
+spin = "0.9"
+
+[lib]
+crate-type = ["lib"]
+

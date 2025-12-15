@@ -2,8 +2,10 @@
 name = "driver-network"
 version = "0.1.0"
 edition = "2021"
+description = "Shared network driver scheme infrastructure with BBRv3 congestion control"
 
 [dependencies]
 libredox = "0.1.3"
 redox-scheme = "0.4"
 redox_syscall = { version = "0.5", features = ["std"] }
+bbrv3-rs = { path = "../bbrv3-rs" }

@@ -37,7 +37,11 @@ fn main() {
         let device =
             unsafe { device::Intel8254x::new(address).expect("e1000d: failed to allocate device") };
 
+        // Create NetworkScheme with integrated BBRv3 congestion control
         let mut scheme = NetworkScheme::new(device, format!("network.{name}"));
+
+        log::info!("e1000d: BBRv3 congestion control enabled");
+        log::info!("e1000d: Monitoring available at network.{name}:bbr and network.{name}:bbr_raw");
 
         user_data! {
             enum Source {

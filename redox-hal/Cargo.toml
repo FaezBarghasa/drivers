@@ -1,0 +1,274 @@
+[package]
+name = "redox-hal"
+version = "0.1.0"
+edition = "2021"
+authors = ["RedoxOS Contributors"]
+description = "Universal Hardware Abstraction Layer for Redox OS embedded systems"
+documentation = "https://docs.redox-os.org/redox-hal"
+license = "MIT"
+
+[features]
+default = ["critical-section"]
+
+# ============================================================
+# Architecture Support
+# ============================================================
+armv6 = []
+armv7 = []
+armv7m = []      # Cortex-M (STM32, Teensy)
+armv8 = []       # 32-bit ARMv8
+aarch64 = []     # 64-bit ARM
+riscv32 = []
+riscv64 = []
+xtensa = []      # ESP32
+x86_64 = []
+
+# ============================================================
+# SoC/Chip Support
+# ============================================================
+
+# Espressif ESP32 family
+esp32 = ["xtensa"]
+esp32-s2 = ["xtensa"]
+esp32-s3 = ["xtensa"]
+esp32-c3 = ["riscv32"]       # RISC-V based
+esp32-c6 = ["riscv32"]
+esp32-h2 = ["riscv32"]
+
+# STMicroelectronics STM32 family
+stm32f0 = ["armv7m"]         # Cortex-M0
+stm32f1 = ["armv7m"]         # Cortex-M3
+stm32f2 = ["armv7m"]         # Cortex-M3
+stm32f3 = ["armv7m"]         # Cortex-M4F
+stm32f4 = ["armv7m"]         # Cortex-M4F
+stm32f7 = ["armv7m"]         # Cortex-M7F
+stm32g0 = ["armv7m"]         # Cortex-M0+
+stm32g4 = ["armv7m"]         # Cortex-M4F
+stm32h7 = ["armv7m"]         # Cortex-M7F
+stm32l0 = ["armv7m"]         # Cortex-M0+
+stm32l1 = ["armv7m"]         # Cortex-M3
+stm32l4 = ["armv7m"]         # Cortex-M4F
+stm32l5 = ["armv7m"]         # Cortex-M33
+stm32u5 = ["armv7m"]         # Cortex-M33
+stm32wb = ["armv7m"]         # Cortex-M4 + M0 (BLE)
+stm32wl = ["armv7m"]         # Cortex-M4 + M0 (LoRa)
+stm32mp1 = ["aarch64"]       # Cortex-A7 + M4
+
+# PJRC Teensy family
+teensy-lc = ["armv7m"]       # MKL26Z64 (Cortex-M0+)
+teensy-30 = ["armv7m"]       # MK20DX128 (Cortex-M4)
+teensy-31 = ["armv7m"]       # MK20DX256 (Cortex-M4)
+teensy-32 = ["armv7m"]       # MK20DX256 (Cortex-M4)
+teensy-35 = ["armv7m"]       # MK64FX512 (Cortex-M4F)
+teensy-36 = ["armv7m"]       # MK66FX1M0 (Cortex-M4F)
+teensy-40 = ["armv7m"]       # IMXRT1062 (Cortex-M7)
+teensy-41 = ["armv7m"]       # IMXRT1062 (Cortex-M7)
+teensy-mm = ["armv7m"]       # IMXRT1062 (Cortex-M7)
+
+# Raspberry Pi family
+rpi-zero = ["armv6", "bcm2835"]
+rpi-zero-w = ["armv6", "bcm2835"]
+rpi-zero-2w = ["aarch64", "bcm2710"]
+rpi-1 = ["armv6", "bcm2835"]
+rpi-2 = ["armv7", "bcm2836"]
+rpi-3 = ["aarch64", "bcm2837"]
+rpi-4 = ["aarch64", "bcm2711"]
+rpi-5 = ["aarch64", "bcm2712"]
+rpi-cm4 = ["aarch64", "bcm2711"]
+rpi-pico = ["armv7m", "rp2040"]
+rpi-pico-w = ["armv7m", "rp2040"]
+rpi-pico2 = ["armv7m", "rp2350"]
+
+# Broadcom SoCs
+bcm2835 = []
+bcm2836 = []
+bcm2837 = []
+bcm2710 = []
+bcm2711 = []
+bcm2712 = []
+rp2040 = []
+rp2350 = []
+
+# Radxa boards (Rockchip)
+radxa-zero = ["aarch64", "s905y2"]
+radxa-zero-2 = ["aarch64", "a311d"]
+radxa-rock-3a = ["aarch64", "rk3568"]
+radxa-rock-3b = ["aarch64", "rk3568"]
+radxa-rock-3c = ["aarch64", "rk3566"]
+radxa-rock-4 = ["aarch64", "rk3399"]
+radxa-rock-5a = ["aarch64", "rk3588s"]
+radxa-rock-5b = ["aarch64", "rk3588"]
+radxa-cm3 = ["aarch64", "rk3566"]
+radxa-cm5 = ["aarch64", "rk3588s"]
+
+# ODROID boards
+odroid-c1 = ["armv7", "s805"]
+odroid-c2 = ["aarch64", "s905"]
+odroid-c4 = ["aarch64", "s905x3"]
+odroid-hc4 = ["aarch64", "s905x3"]
+odroid-n2 = ["aarch64", "s922x"]
+odroid-m1 = ["aarch64", "rk3568"]
+odroid-xu4 = ["armv7", "exynos5422"]
+odroid-h2 = ["x86_64"]
+odroid-h3 = ["x86_64"]
+
+# Pine64 boards
+pine-a64 = ["aarch64", "a64"]
+pine-a64-lts = ["aarch64", "a64"]
+pine-h64 = ["aarch64", "h6"]
+pinebook = ["aarch64", "a64"]
+pinebook-pro = ["aarch64", "rk3399"]
+pinephone = ["aarch64", "a64"]
+pinephone-pro = ["aarch64", "rk3399"]
+pinetab = ["aarch64", "a64"]
+pinetab2 = ["aarch64", "rk3566"]
+rock64 = ["aarch64", "rk3328"]
+rockpro64 = ["aarch64", "rk3399"]
+quartz64 = ["aarch64", "rk3566"]
+star64 = ["riscv64", "jh7110"]
+
+# Orange Pi boards (Allwinner/Rockchip)
+orange-pi-zero = ["armv7", "h2plus"]
+orange-pi-zero-lts = ["armv7", "h3"]
+orange-pi-zero2 = ["aarch64", "h616"]
+orange-pi-zero3 = ["aarch64", "h618"]
+orange-pi-one = ["armv7", "h3"]
+orange-pi-lite = ["armv7", "h3"]
+orange-pi-pc = ["armv7", "h3"]
+orange-pi-pc2 = ["aarch64", "h5"]
+orange-pi-3 = ["aarch64", "h6"]
+orange-pi-4 = ["aarch64", "rk3399"]
+orange-pi-5 = ["aarch64", "rk3588s"]
+orange-pi-5-plus = ["aarch64", "rk3588"]
+orange-pi-r1 = ["armv7", "h3"]
+orange-pi-r1-plus = ["aarch64", "rk3328"]
+
+# NanoPi boards (FriendlyElec)
+nanopi-neo = ["armv7", "h3"]
+nanopi-neo2 = ["aarch64", "h5"]
+nanopi-neo3 = ["aarch64", "rk3328"]
+nanopi-neo4 = ["aarch64", "rk3399"]
+nanopi-m1 = ["armv7", "h3"]
+nanopi-m4 = ["aarch64", "rk3399"]
+nanopi-r2s = ["aarch64", "rk3328"]
+nanopi-r4s = ["aarch64", "rk3399"]
+nanopi-r5s = ["aarch64", "rk3568"]
+nanopi-r6s = ["aarch64", "rk3588s"]
+nanopi-duo = ["armv7", "h2plus"]
+nanopi-k2 = ["aarch64", "s905"]
+
+# Banana Pi boards
+banana-pi-m1 = ["armv7", "a20"]
+banana-pi-m2 = ["armv7", "a31s"]
+banana-pi-m2-zero = ["armv7", "h3"]
+banana-pi-m2-plus = ["armv7", "h3"]
+banana-pi-m2-ultra = ["armv7", "r40"]
+banana-pi-m3 = ["aarch64", "a83t"]
+banana-pi-m4 = ["aarch64", "rtd1395"]
+banana-pi-m5 = ["aarch64", "s905x3"]
+banana-pi-m7 = ["aarch64", "rk3588"]
+banana-pi-r2 = ["armv7", "mt7623"]
+banana-pi-r3 = ["aarch64", "mt7986"]
+banana-pi-r4 = ["aarch64", "mt7988"]
+banana-pi-cm4 = ["aarch64", "a311d"]
+
+# ============================================================
+# SoC Definitions
+# ============================================================
+
+# Allwinner SoCs
+a20 = []
+a31s = []
+a64 = []
+a83t = []
+h2plus = []
+h3 = []
+h5 = []
+h6 = []
+h616 = []
+h618 = []
+r40 = []
+
+# Rockchip SoCs
+rk3288 = []
+rk3328 = []
+rk3399 = []
+rk3566 = []
+rk3568 = []
+rk3588 = []
+rk3588s = []
+
+# Amlogic SoCs
+s805 = []
+s905 = []
+s905x3 = []
+s905y2 = []
+s922x = []
+a311d = []
+
+# Samsung Exynos
+exynos5422 = []
+
+# MediaTek SoCs
+mt7623 = []
+mt7986 = []
+mt7988 = []
+
+# Realtek SoCs
+rtd1395 = []
+
+# StarFive (RISC-V)
+jh7110 = []
+
+# ============================================================
+# Peripheral Support
+# ============================================================
+gpio = []
+spi = []
+i2c = []
+uart = []
+timer = []
+pwm = []
+adc = []
+dac = []
+dma = []
+watchdog = []
+rtc = []
+can = []
+usb = []
+ethernet = []
+wifi = []
+bluetooth = []
+sdio = []
+display = []
+camera = []
+audio = []
+
+# ============================================================
+# Additional Features
+# ============================================================
+embedded-io = []
+async = ["dep:futures-core"]
+critical-section = []
+defmt = ["dep:defmt"]
+
+# All peripherals
+full = ["gpio", "spi", "i2c", "uart", "timer", "pwm", "adc", "dac", "dma", "watchdog", "rtc", "can", "usb"]
+
+# All networking
+networking = ["ethernet", "wifi", "bluetooth"]
+
+[dependencies]
+bitflags = "2"
+spin = "0.9"
+
+# Optional
+futures-core = { version = "0.3", optional = true, default-features = false }
+defmt = { version = "0.3", optional = true }
+
+[dev-dependencies]
+
+# Ensure no_std compatibility
+[lib]
+crate-type = ["lib"]
+

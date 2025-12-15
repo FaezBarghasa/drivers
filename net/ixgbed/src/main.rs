@@ -35,6 +35,9 @@ fn main() {
 
         let mut scheme = NetworkScheme::new(device, format!("network.{name}"));
 
+        println!("   - BBRv3 congestion control enabled");
+        println!("   - Monitoring available at network.{name}:bbr and network.{name}:bbr_raw");
+
         user_data! {
             enum Source {
                 Irq,

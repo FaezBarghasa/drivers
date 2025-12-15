@@ -1,4 +1,5 @@
 use std::convert::TryInto;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use std::{cmp, mem, ptr, slice, thread};
 
@@ -21,6 +22,9 @@ pub struct Intel8259x {
     transmit_index: usize,
     transmit_clean_index: usize,
     mac_address: [u8; 6],
+    ipv4_address: [u8; 4],
+    /// Track bytes in flight for BBRv3
+    in_flight_bytes: AtomicU64,
 }
 
 fn wrap_ring(index: usize, ring_size: usize) -> usize {
@@ -30,6 +34,41 @@ fn wrap_ring(index: usize, ring_size: usize) -> usize {
 impl NetworkAdapter for Intel8259x {
     fn mac_address(&mut self) -> [u8; 6] {
         self.mac_address
+    }
+
+    fn ipv4_address(&mut self) -> [u8; 4] {
+        self.ipv4_address
+    }
+
+    fn ipv6_address(&mut self) -> [u8; 16] {
+        // Generate link-local IPv6 address from MAC (EUI-64)
+        let mac = self.mac_address;
+        [
+            0xfe,
+            0x80,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            mac[0] ^ 0x02,
+            mac[1],
+            mac[2],
+            0xff,
+            0xfe,
+            mac[3],
+            mac[4],
+            mac[5],
+        ]
+    }
+
+    fn ipv6_address_global(&mut self) -> [u8; 16] {
+        [0; 16] // No global IPv6 address configured
+    }
+
+    fn ipv6_address_unique_local(&mut self) -> [u8; 16] {
+        [0; 16] // No unique local IPv6 address configured
     }
 
     fn available_for_read(&mut self) -> usize {
@@ -55,6 +94,9 @@ impl NetworkAdapter for Intel8259x {
             let i = cmp::min(buf.len(), data.len());
             buf[..i].copy_from_slice(&data[..i]);
 
+            // Track bytes acknowledged
+            self.in_flight_bytes.fetch_sub(i as u64, Ordering::SeqCst);
+
             desc.read.pkt_addr = self.receive_buffer[self.receive_index].physical() as u64;
             desc.read.hdr_addr = 0;
 
@@ -67,7 +109,7 @@ impl NetworkAdapter for Intel8259x {
         Ok(None)
     }
 
-    fn write_packet(&mut self, buf: &[u8]) -> Result<usize> {
+    fn write_packet(&mut self, buf: &[u8], _pacing_rate: u64) -> Result<usize> {
         if self.transmit_ring_free == 0 {
             loop {
                 let desc = unsafe {
@@ -112,12 +154,19 @@ impl NetworkAdapter for Intel8259x {
 
         desc.read.olinfo_status = (buf.len() as u32) << IXGBE_ADVTXD_PAYLEN_SHIFT;
 
+        // Track bytes in flight
+        self.in_flight_bytes.fetch_add(i as u64, Ordering::SeqCst);
+
         self.transmit_index = wrap_ring(self.transmit_index, self.transmit_ring.len());
         self.transmit_ring_free -= 1;
 
         self.write_reg(IXGBE_TDT(0), self.transmit_index as u32);
 
         Ok(i)
+    }
+
+    fn in_flight(&self) -> u64 {
+        self.in_flight_bytes.load(Ordering::SeqCst)
     }
 }
 
@@ -145,6 +194,8 @@ impl Intel8259x {
             transmit_index: 0,
             transmit_clean_index: 0,
             mac_address: [0; 6],
+            ipv4_address: [10, 0, 2, 15], // Default QEMU/DHCP address
+            in_flight_bytes: AtomicU64::new(0),
         };
 
         module.init();

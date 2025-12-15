@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 use std::mem;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use common::io::{Io, Mmio, ReadOnly};
 use driver_network::NetworkAdapter;
@@ -78,11 +79,49 @@ pub struct Rtl8168 {
     transmit_buffer_h: [Dma<[Mmio<u8>; 7552]>; 1],
     transmit_ring_h: Dma<[Td; 1]>,
     mac_address: [u8; 6],
+    ipv4_address: [u8; 4],
+    /// Track bytes in flight for BBRv3
+    in_flight_bytes: AtomicU64,
 }
 
 impl NetworkAdapter for Rtl8168 {
     fn mac_address(&mut self) -> [u8; 6] {
         self.mac_address
+    }
+
+    fn ipv4_address(&mut self) -> [u8; 4] {
+        self.ipv4_address
+    }
+
+    fn ipv6_address(&mut self) -> [u8; 16] {
+        // Generate link-local IPv6 address from MAC (EUI-64)
+        let mac = self.mac_address;
+        [
+            0xfe,
+            0x80,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            mac[0] ^ 0x02,
+            mac[1],
+            mac[2],
+            0xff,
+            0xfe,
+            mac[3],
+            mac[4],
+            mac[5],
+        ]
+    }
+
+    fn ipv6_address_global(&mut self) -> [u8; 16] {
+        [0; 16] // No global IPv6 address configured
+    }
+
+    fn ipv6_address_unique_local(&mut self) -> [u8; 16] {
+        [0; 16] // No unique local IPv6 address configured
     }
 
     fn available_for_read(&mut self) -> usize {
@@ -111,13 +150,16 @@ impl NetworkAdapter for Rtl8168 {
 
             self.receive_i += 1;
 
+            // Track bytes acknowledged
+            self.in_flight_bytes.fetch_sub(i as u64, Ordering::SeqCst);
+
             Ok(Some(i))
         } else {
             Ok(None)
         }
     }
 
-    fn write_packet(&mut self, buf: &[u8]) -> Result<usize> {
+    fn write_packet(&mut self, buf: &[u8], _pacing_rate: u64) -> Result<usize> {
         loop {
             if self.transmit_i >= self.transmit_ring.len() {
                 self.transmit_i = 0;
@@ -140,6 +182,9 @@ impl NetworkAdapter for Rtl8168 {
                 let eor = td.ctrl.read() & EOR;
                 td.ctrl.write(OWN | eor | FS | LS | i as u32);
 
+                // Track bytes in flight
+                self.in_flight_bytes.fetch_add(i as u64, Ordering::SeqCst);
+
                 self.regs.tppoll.writef(1 << 6, true); //Notify of normal priority packet
 
                 while self.regs.tppoll.readf(1 << 6) {
@@ -153,6 +198,10 @@ impl NetworkAdapter for Rtl8168 {
 
             std::hint::spin_loop();
         }
+    }
+
+    fn in_flight(&self) -> u64 {
+        self.in_flight_bytes.load(Ordering::SeqCst)
     }
 }
 
@@ -191,6 +240,8 @@ impl Rtl8168 {
             transmit_buffer_h: [Dma::zeroed()?.assume_init()],
             transmit_ring_h: Dma::zeroed()?.assume_init(),
             mac_address: [0; 6],
+            ipv4_address: [10, 0, 2, 15], // Default QEMU/DHCP address
+            in_flight_bytes: AtomicU64::new(0),
         };
 
         module.init();
@@ -233,7 +284,12 @@ impl Rtl8168 {
         ];
         log::debug!(
             "MAC: {:>02X}:{:>02X}:{:>02X}:{:>02X}:{:>02X}:{:>02X}",
-            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+            mac[0],
+            mac[1],
+            mac[2],
+            mac[3],
+            mac[4],
+            mac[5]
         );
         self.mac_address = mac;
 

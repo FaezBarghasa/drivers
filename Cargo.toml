@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "common",
+    "nvme-core",
     "executor",
 
     "acpid",
@@ -21,6 +22,8 @@ members = [
     "graphics/fbbootlogd",
     "graphics/driver-graphics",
     "graphics/fbcond",
+    "graphics/gal",
+    "graphics/gal-virtio",
     "graphics/graphics-ipc",
     "graphics/vesad",
     "graphics/virtio-gpud",
@@ -36,6 +39,7 @@ members = [
     "net/rtl8168d",
     "net/virtio-netd",
     "net/bbrv3-rs",
+    "net/netutils",
 
     "storage/ahcid",
     "storage/bcm2835-sdhcid",
@@ -50,6 +54,13 @@ members = [
     "usb/xhcid",
     "usb/usbctl",
     "usb/usbhubd",
+
+    # Linux Application Compatibility layer
+    "linux-compat-server",
+
+    # Embedded HAL and BSP
+    "redox-hal",
+    "redox-bsp-generic",
 ]
 
 [profile.release]

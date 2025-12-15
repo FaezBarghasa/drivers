@@ -2,5 +2,18 @@
 name = "bbrv3-rs"
 version = "0.1.0"
 edition = "2021"
+description = "BBRv3 Congestion Control Algorithm for low-latency, high-throughput TCP"
+license = "MIT"
+keywords = ["bbr", "congestion-control", "tcp", "networking"]
+categories = ["network-programming", "algorithms"]
+
+[features]
+default = ["std"]
+std = []
 
 [dependencies]
+
+[dev-dependencies]
+
+# For no_std support, we only need alloc for VecDeque
+# The crate uses #![no_std] with extern crate alloc

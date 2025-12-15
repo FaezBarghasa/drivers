@@ -1,6 +1,5 @@
-[[drivers]]
-name = "virtio-net"
-class = 0x02
-vendor = 0x1AF4
-device = 0x1000
-command = ["virtio-netd"]
+# Global IPv6 address
+global_ipv6 = "2001:db8::1"
+
+# Unique local IPv6 address
+unique_local_ipv6 = "fc00::1"

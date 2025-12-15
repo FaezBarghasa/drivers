@@ -1,11 +1,14 @@
+mod ipv6;
 mod scheme;
 
 use std::fs::File;
 use std::io::{Read, Write};
 use std::mem;
+use std::net::Ipv6Addr;
 
 use driver_network::NetworkScheme;
 use pcid_interface::PciFunctionHandle;
+use serde::Deserialize;
 
 use scheme::VirtioNet;
 
@@ -26,6 +29,12 @@ pub struct VirtHeader {
 static_assertions::const_assert_eq!(core::mem::size_of::<VirtHeader>(), 12);
 
 const MAX_BUFFER_LEN: usize = 65535;
+
+#[derive(Deserialize)]
+struct Config {
+    global_ipv6: Option<String>,
+    unique_local_ipv6: Option<String>,
+}
 
 fn deamon(daemon: redox_daemon::Daemon) -> Result<(), Box<dyn std::error::Error>> {
     let mut pcid_handle = PciFunctionHandle::connect_default();
@@ -92,8 +101,37 @@ fn deamon(daemon: redox_daemon::Daemon) -> Result<(), Box<dyn std::error::Error>
     let mut name = pci_config.func.name();
     name.push_str("_virtio_net");
 
-    let device = VirtioNet::new(mac_address, rx_queue, tx_queue);
+    let mut config_data = String::new();
+    if let Ok(mut config_file) = File::open("config.toml") {
+        config_file.read_to_string(&mut config_data)?;
+    }
+    let config: Config = toml::from_str(&config_data)?;
+
+    let global_ipv6 = config
+        .global_ipv6
+        .and_then(|s| s.parse::<Ipv6Addr>().ok())
+        .map(|ip| ip.octets())
+        .unwrap_or([0; 16]);
+
+    let unique_local_ipv6 = config
+        .unique_local_ipv6
+        .and_then(|s| s.parse::<Ipv6Addr>().ok())
+        .map(|ip| ip.octets())
+        .unwrap_or([0; 16]);
+
+    // Create the VirtioNet device with BBRv3 congestion control
+    // The NetworkScheme now automatically creates a BBRv3 instance
+    let device = VirtioNet::new(
+        mac_address,
+        rx_queue,
+        tx_queue,
+        global_ipv6,
+        unique_local_ipv6,
+    );
     let mut scheme = NetworkScheme::new(device, format!("network.{name}"));
+
+    log::info!("virtio-net: BBRv3 congestion control enabled");
+    log::info!("virtio-net: Monitoring available at network.{name}:bbr and network.{name}:bbr_raw");
 
     let mut event_queue = File::open("/scheme/event")?;
     event_queue.write(&syscall::Event {

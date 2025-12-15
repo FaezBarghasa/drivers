@@ -1,0 +1,21 @@
+[package]
+name = "nvme"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { path = "../../drivers/common" }
+pcid = { path = "../../drivers/pcid" }
+executor = { path = "../../drivers/executor" }
+syscall = { package = "redox_syscall", version = "0.5" }
+log = "0.4"
+parking_lot = "0.12"
+bitflags = "2"
+num_cpus = "1.13"
+spin = "0.9"
+
+[profile.release]
+lto = "fat"
+opt-level = 3
+codegen-units = 1
+panic = "abort"
