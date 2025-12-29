@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { path = "../../drivers/common" }
-pcid = { path = "../../drivers/pcid" }
-executor = { path = "../../drivers/executor" }
+common = { path = "../common" }
+pcid = { path = "../pcid" }
+executor = { path = "../executor" }
 syscall = { package = "redox_syscall", version = "0.5" }
 log = "0.4"
 parking_lot = "0.12"

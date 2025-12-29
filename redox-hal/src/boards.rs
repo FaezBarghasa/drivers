@@ -325,7 +325,7 @@ pub const ODROID_N2: BoardInfo = BoardInfo {
     flash_size: 0,
     peripherals: PeripheralConfig {
         gpio_base: 0xFF63_4000,
-        spi_base: 0xFFF D1_0000,
+        spi_base: 0xFFD1_0000,
         i2c_base: 0xFFD1_E000,
         uart_base: 0xFF80_3000,
         timer_base: 0xFFD0_0000,
