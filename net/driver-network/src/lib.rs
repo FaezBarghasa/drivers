@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 use std::{cmp, io};
 
-use bbrv3_rs::{Bbr, BbrMetrics};
+pub use bbrv3_rs::{Bbr, BbrMetrics, BbrState};
 use libredox::flag::O_NONBLOCK;
 use libredox::Fd;
 use redox_scheme::{
@@ -608,4 +608,4 @@ impl<T: NetworkAdapter> SchemeBlock for NetworkScheme<T> {
 }
 
 // Re-export BBRv3 types for convenience
-pub use bbrv3_rs::{Bbr, BbrMetrics, BbrState};
+//pub use bbrv3_rs::{BbrMetrics, BbrState};

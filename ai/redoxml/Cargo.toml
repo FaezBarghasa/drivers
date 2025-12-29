@@ -26,3 +26,6 @@ avx512 = []
 amx = []
 neon = []
 sve = []
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }

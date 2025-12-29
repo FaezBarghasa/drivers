@@ -40,7 +40,7 @@ pub mod heap {
     /// Bump allocator for simple heap allocation
     pub struct BumpAllocator {
         heap_start: UnsafeCell<usize>,
-        heap_end: usize,
+        heap_end: UnsafeCell<usize>,
         next: UnsafeCell<usize>,
     }
 
@@ -51,7 +51,7 @@ pub mod heap {
         pub const fn new() -> Self {
             Self {
                 heap_start: UnsafeCell::new(0),
-                heap_end: 0,
+                heap_end: UnsafeCell::new(0),
                 next: UnsafeCell::new(0),
             }
         }
@@ -63,7 +63,7 @@ pub mod heap {
         /// The caller must ensure the memory region is valid and not used elsewhere.
         pub unsafe fn init(&self, heap_start: usize, heap_size: usize) {
             *self.heap_start.get() = heap_start;
-            *((&self.heap_end) as *const usize as *mut usize) = heap_start + heap_size;
+            *self.heap_end.get() = heap_start + heap_size;
             *self.next.get() = heap_start;
         }
 
@@ -74,7 +74,7 @@ pub mod heap {
 
         /// Get the amount of heap free
         pub fn free(&self) -> usize {
-            unsafe { self.heap_end - *self.next.get() }
+            unsafe { *self.heap_end.get() - *self.next.get() }
         }
     }
 
@@ -84,7 +84,7 @@ pub mod heap {
             let alloc_start = (*next + layout.align() - 1) & !(layout.align() - 1);
             let alloc_end = alloc_start.saturating_add(layout.size());
 
-            if alloc_end > self.heap_end {
+            if alloc_end > *self.heap_end.get() {
                 return null_mut();
             }
 

@@ -413,7 +413,7 @@ impl SyscallTranslator {
         let fds = self.fds.read();
         if let Some(fd_info) = fds.get(&oldfd) {
             let newfd = self.alloc_fd();
-            drop(fds);
+            //drop(fds);
 
             self.fds.write().insert(
                 newfd,
@@ -717,7 +717,7 @@ impl SyscallTranslator {
 
         match res {
             Ok(val) => SyscallResult::Success(val as i64),
-            Err(err) => SyscallResult::Error(LinuxErrno::from_error(err)),
+            Err(err) => SyscallResult::Error(LinuxErrno::from_redox(err)),
         }
     }
 
@@ -741,7 +741,7 @@ impl SyscallTranslator {
 
         match res {
             Ok(val) => SyscallResult::Success(val as i64),
-            Err(err) => SyscallResult::Error(LinuxErrno::from_error(err)),
+            Err(err) => SyscallResult::Error(LinuxErrno::from_redox(err)),
         }
     }
 

@@ -43,7 +43,7 @@ members = [
     "net/rtl8168d",
     "net/virtio-netd",
     "net/bbrv3-rs",
-    "net/netutils",
+    # "net/netutils",
 
     "storage/ahcid",
     "storage/bcm2835-sdhcid",

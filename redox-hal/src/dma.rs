@@ -141,7 +141,7 @@ pub struct DmaBuffer<T, const N: usize> {
 
 impl<T: Copy + Default, const N: usize> DmaBuffer<T, N> {
     /// Create a new DMA buffer
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             data: [T::default(); N],
         }
