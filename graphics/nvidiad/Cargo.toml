@@ -1,0 +1,29 @@
+[package]
+name = "nvidiad"
+version = "0.1.0"
+edition = "2021"
+authors = ["Redox OS Contributors"]
+description = "Native NVIDIA GPU driver with TTM memory manager"
+
+[[bin]]
+name = "nvidiad"
+path = "src/main.rs"
+
+[dependencies]
+log = "0.4"
+spin = "0.9"
+bitflags = "2"
+
+# Redox dependencies
+common = { path = "../../common" }
+pcid = { path = "../../pcid" }
+driver-graphics = { path = "../driver-graphics" }
+libredox = "0.1.3"
+redox-scheme = "0.6.2"
+redox-daemon = "0.1"
+redox_event = "0.4.1"
+redox_syscall = "0.5"
+
+[features]
+default = []
+debug-logging = []

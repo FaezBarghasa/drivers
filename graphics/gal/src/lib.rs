@@ -273,11 +273,18 @@ impl ClearDepthStencil {
 }
 
 /// Union of clear values
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub union ClearValue {
     pub color: ClearColor,
     pub depth_stencil: ClearDepthStencil,
+}
+
+impl core::fmt::Debug for ClearValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Safely display as color by default
+        write!(f, "ClearValue {{ ... }}")
+    }
 }
 
 impl Default for ClearValue {

@@ -1,0 +1,18 @@
+[package]
+name = "dxvk"
+version = "0.1.0"
+edition = "2021"
+authors = ["Redox OS Developers"]
+description = "DirectX to Vulkan translation layer for Redox OS"
+
+[dependencies]
+log = "0.4"
+vulkan-loader = { path = "../vulkan-loader" }
+gal = { path = "../gal" }
+
+[features]
+default = ["d3d11", "d3d12"]
+d3d9 = []
+d3d11 = []
+d3d12 = []
+path-tracing = []

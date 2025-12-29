@@ -342,6 +342,7 @@ pub enum LinuxSyscall {
     Statx = 332,
     IoPgetevents = 333,
     Rseq = 334,
+    FutexWaitv = 449,
 
     // Placeholder for unknown syscalls
     Unknown = 0xFFFF,
@@ -416,6 +417,7 @@ impl LinuxSyscall {
             302 => Self::Prlimit64,
             318 => Self::Getrandom,
             322 => Self::Execveat,
+            449 => Self::FutexWaitv,
             _ => Self::Unknown,
         }
     }
@@ -483,6 +485,7 @@ impl LinuxSyscall {
             Self::Prlimit64 => "prlimit64",
             Self::Getrandom => "getrandom",
             Self::Execveat => "execveat",
+            Self::FutexWaitv => "futex_waitv",
             Self::Unknown => "unknown",
             _ => "unhandled",
         }
@@ -595,6 +598,7 @@ pub fn syscall_arg_count(syscall: LinuxSyscall) -> usize {
         LinuxSyscall::Rmdir => 1,
         LinuxSyscall::Unlink => 1,
         LinuxSyscall::Unlinkat => 3,
+        LinuxSyscall::FutexWaitv => 5,
         _ => 6, // Maximum
     }
 }

@@ -1,0 +1,16 @@
+[package]
+name = "latency"
+version = "0.1.0"
+edition = "2021"
+authors = ["Redox OS Developers"]
+description = "Latency reduction and frame pacing for Redox OS"
+
+[dependencies]
+log = "0.4"
+gal = { path = "../gal" }
+
+[features]
+default = ["anti-lag"]
+anti-lag = []
+reflex = []
+boost = []

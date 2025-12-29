@@ -1,0 +1,17 @@
+[package]
+name = "upscaling"
+version = "0.1.0"
+edition = "2021"
+authors = ["Redox OS Developers"]
+description = "FSR/DLSS upscaling support for Redox OS"
+
+[dependencies]
+log = "0.4"
+gal = { path = "../gal" }
+vulkan-loader = { path = "../vulkan-loader" }
+
+[features]
+default = ["fsr"]
+fsr = []
+dlss = []
+xess = []

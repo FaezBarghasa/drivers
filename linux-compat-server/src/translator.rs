@@ -11,6 +11,7 @@ use std::path::Path;
 
 use crate::errno::LinuxErrno;
 use crate::syscall_table::LinuxSyscall;
+use redox_syscall::{self, syscall5, syscall6, SYS_FUTEX};
 
 /// Syscall context containing all registers
 #[derive(Debug, Clone, Default)]
@@ -275,6 +276,7 @@ impl SyscallTranslator {
             LinuxSyscall::Getrandom => self.sys_getrandom(ctx),
             LinuxSyscall::SetTidAddress => self.sys_set_tid_address(ctx),
             LinuxSyscall::Futex => self.sys_futex(ctx),
+            LinuxSyscall::FutexWaitv => self.sys_futex_waitv(ctx),
             LinuxSyscall::Prlimit64 => self.sys_prlimit64(ctx),
             LinuxSyscall::ArchPrctl => self.sys_arch_prctl(ctx),
 
@@ -704,8 +706,43 @@ impl SyscallTranslator {
     }
 
     fn sys_futex(&self, ctx: &SyscallContext) -> SyscallResult {
-        // Fast userspace mutex - complex implementation
-        SyscallResult::Success(0)
+        let uaddr = ctx.arg0 as usize;
+        let op = ctx.arg1 as usize;
+        let val = ctx.arg2 as usize;
+        let timeout = ctx.arg3 as usize;
+        let uaddr2 = ctx.arg4 as usize;
+        let _val3 = ctx.arg5 as usize;
+
+        let res = unsafe { syscall6(SYS_FUTEX, uaddr, op, val, timeout, uaddr2, 0) };
+
+        match res {
+            Ok(val) => SyscallResult::Success(val as i64),
+            Err(err) => SyscallResult::Error(LinuxErrno::from_error(err)),
+        }
+    }
+
+    fn sys_futex_waitv(&self, ctx: &SyscallContext) -> SyscallResult {
+        let waiters_addr = ctx.arg0 as usize;
+        let nr_futexes = ctx.arg1 as usize;
+        let flags = ctx.arg2 as usize;
+        let timeout_addr = ctx.arg3 as usize;
+        let clockid = ctx.arg4 as usize;
+
+        let res = unsafe {
+            syscall5(
+                449, // Using custom syscall number for futex_waitv
+                waiters_addr,
+                nr_futexes,
+                flags,
+                timeout_addr,
+                clockid,
+            )
+        };
+
+        match res {
+            Ok(val) => SyscallResult::Success(val as i64),
+            Err(err) => SyscallResult::Error(LinuxErrno::from_error(err)),
+        }
     }
 
     fn sys_prlimit64(&self, ctx: &SyscallContext) -> SyscallResult {

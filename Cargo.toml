@@ -27,6 +27,10 @@ members = [
     "graphics/graphics-ipc",
     "graphics/vesad",
     "graphics/virtio-gpud",
+    "graphics/vulkan-loader",
+    "graphics/dxvk",
+    "graphics/upscaling",
+    "graphics/latency",
 
     "input/ps2d",
     "input/usbhidd",
@@ -47,7 +51,7 @@ members = [
     "storage/ided",
     "storage/lived",          # TODO: not really a driver...
     "storage/nvmed",
-    "nvme-driver",
+    # "nvme-driver",
     "storage/usbscsid",
     "storage/virtio-blkd",
 
@@ -61,6 +65,7 @@ members = [
     # Embedded HAL and BSP
     "redox-hal",
     "redox-bsp-generic",
+    "ai/redoxml",
 ]
 
 [profile.release]

@@ -75,6 +75,62 @@ pub trait Shader: Send + Sync {
     fn entry_point(&self) -> &str;
 }
 
+/// Concrete shader module implementation
+#[derive(Debug, Clone)]
+pub struct ShaderModule {
+    /// Handle ID
+    handle: usize,
+    /// Shader stage
+    stage: ShaderStage,
+    /// Entry point name
+    entry_point: String,
+    /// SPIR-V bytecode
+    spirv: Vec<u32>,
+}
+
+impl ShaderModule {
+    /// Create a new shader module from SPIR-V bytecode
+    pub fn new(stage: ShaderStage, spirv: Vec<u32>, entry_point: &str) -> Self {
+        static NEXT_HANDLE: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(1);
+        let handle = NEXT_HANDLE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+
+        Self {
+            handle,
+            stage,
+            entry_point: String::from(entry_point),
+            spirv,
+        }
+    }
+
+    /// Create from descriptor
+    pub fn from_descriptor(desc: &ShaderModuleDescriptor) -> Result<Self> {
+        match &desc.code {
+            ShaderCode::SpirV(code) => Ok(Self::new(desc.stage, code.to_vec(), desc.entry_point)),
+            ShaderCode::Source { .. } => Err(Error::NotSupported),
+        }
+    }
+
+    /// Get SPIR-V bytecode
+    pub fn spirv(&self) -> &[u32] {
+        &self.spirv
+    }
+}
+
+impl Shader for ShaderModule {
+    fn handle(&self) -> usize {
+        self.handle
+    }
+
+    fn stage(&self) -> ShaderStage {
+        self.stage
+    }
+
+    fn entry_point(&self) -> &str {
+        &self.entry_point
+    }
+}
+
 /// Shader module descriptor
 #[derive(Debug, Clone)]
 pub struct ShaderModuleDescriptor<'a> {

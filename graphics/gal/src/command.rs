@@ -177,7 +177,7 @@ pub trait CommandBuffer: Send + Sync {
 }
 
 /// Render pass descriptor
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RenderPassDescriptor<'a> {
     /// Color attachments
     pub color_attachments: Vec<ColorAttachment<'a>>,
@@ -188,7 +188,7 @@ pub struct RenderPassDescriptor<'a> {
 }
 
 /// Color attachment for render pass
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ColorAttachment<'a> {
     /// Image view to render to
     pub image: &'a dyn Image,
@@ -201,7 +201,7 @@ pub struct ColorAttachment<'a> {
 }
 
 /// Depth/stencil attachment for render pass
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DepthStencilAttachment<'a> {
     /// Image view to render to
     pub image: &'a dyn Image,

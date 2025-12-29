@@ -1,0 +1,18 @@
+[package]
+name = "vulkan-loader"
+version = "0.1.0"
+edition = "2021"
+authors = ["Redox OS Developers"]
+description = "Vulkan ICD loader for Redox OS with ray tracing support"
+
+[dependencies]
+log = "0.4"
+libredox = "0.1"
+redox_syscall = "0.5"
+
+[features]
+default = ["ray-tracing"]
+ray-tracing = []
+mesh-shaders = []
+amdgpu = []
+nvidia = []
