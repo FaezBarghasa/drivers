@@ -1,0 +1,17 @@
+[package]
+name = "npu-driver"
+version = "0.1.0"
+edition = "2021"
+description = "NPU/TPU Native Command Queue Driver for Redox OS"
+authors = ["Redox OS Developers"]
+license = "MIT"
+
+[dependencies]
+redox_syscall = "0.4"
+redox-scheme = "0.2"
+redox_daemon = "0.1"
+spin = "0.9"
+bitflags = "2"
+
+[features]
+default = []

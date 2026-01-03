@@ -1,0 +1,16 @@
+[package]
+name = "fs-link"
+version = "0.1.0"
+edition = "2024"
+description = "Foreign Filesystem Mapper (FS-LINK) for Redox OS"
+authors = ["Redox OS Developers"]
+license = "MIT"
+
+[dependencies]
+redox_syscall = "0.4"
+redox-scheme = "0.2"
+redox_daemon = "0.1"
+spin = "0.9"
+
+[features]
+default = []
