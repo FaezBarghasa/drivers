@@ -62,6 +62,10 @@ impl Descriptor {
         self.size.store(size, Ordering::SeqCst)
     }
 
+    pub fn size(&self) -> u32 {
+        self.size.load(Ordering::SeqCst)
+    }
+
     pub fn set_next(&self, next: Option<u16>) {
         self.next.store(next.unwrap_or_default(), Ordering::SeqCst)
     }

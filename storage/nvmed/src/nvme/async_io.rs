@@ -1,66 +1,135 @@
-//! Async I/O Interface
+use common::dma::Dma;
+use std::sync::Arc;
+use syscall::Result;
 
-use super::queue::CompletionQueueEntry;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
+use super::cmd::NvmeCmd;
+use super::controller::Nvme;
+use super::executor::NvmeExecutor;
+use super::namespace::NvmeNamespace; // LocalExecutor<NvmeHw>
 
-/// Async I/O operation
-pub struct AsyncIo {
-    command_id: u16,
-    completion: Arc<Mutex<Option<CompletionQueueEntry>>>,
-}
+pub async fn read(nvme: &Nvme, ns: &NvmeNamespace, lba: u64, buf: &mut [u8]) -> Result<usize> {
+    let len = buf.len();
+    if len == 0 {
+        return Ok(0);
+    }
 
-impl Future for AsyncIo {
-    type Output = Result<CompletionQueueEntry, &'static str>;
+    // Allocate DMA buffer
+    let mut dma = unsafe {
+        Dma::zeroed_slice(len)
+            .map_err(|_| syscall::Error::new(syscall::ENOMEM))?
+            .assume_init()
+    };
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut completion = self.completion.lock().unwrap();
+    // Calculate PRPs
+    let ptr = dma.physical();
+    let blocks = (len.div_ceil(ns.block_size as usize)) as u16;
 
-        if let Some(entry) = completion.take() {
-            Poll::Ready(Ok(entry))
-        } else {
-            Poll::Pending
-        }
+    // Create command
+    // TODO: Handle PRP list if > 2 pages. For now assume small transfers or contiguous (Dma is contiguous).
+    // Dma from common is virtually contiguous and physically contiguous usually?
+    // Redox common::dma uses `physmap`. It is physically contiguous.
+    // So one PRP is enough? Or two if it crosses page boundary?
+    // Actually Dma.physical() returns the start phys addr. Can we assume it is contiguous?
+    // Usually yes for `Dma` allocation in drivers.
+
+    let cmd = NvmeCmd::io_read(
+        1, // CID (will be replaced by executor)
+        ns.id,
+        lba,
+        blocks.saturating_sub(1), // 0-based count
+        ptr as u64,
+        0, // PRP2
+    );
+
+    // Submit
+    // We need to match the SQ ID. Default IO SQ is 1?
+    let sq_id = 1;
+
+    let cqe = NvmeExecutor::current().submit(sq_id, cmd).await;
+
+    if (cqe.status >> 1) == 0 {
+        // Success
+        buf.copy_from_slice(&dma);
+        Ok(len)
+    } else {
+        Err(syscall::Error::new(syscall::EIO))
     }
 }
 
-impl AsyncIo {
-    /// Create new async I/O operation
-    pub fn new(command_id: u16) -> Self {
-        Self {
-            command_id,
-            completion: Arc::new(Mutex::new(None)),
-        }
+pub async fn write(nvme: &Nvme, ns: &NvmeNamespace, lba: u64, buf: &[u8]) -> Result<usize> {
+    let len = buf.len();
+    if len == 0 {
+        return Ok(0);
     }
 
-    /// Complete the operation
-    pub fn complete(&self, entry: CompletionQueueEntry) {
-        *self.completion.lock().unwrap() = Some(entry);
+    let mut dma = unsafe {
+        Dma::zeroed_slice(len)
+            .map_err(|_| syscall::Error::new(syscall::ENOMEM))?
+            .assume_init()
+    };
+    dma.copy_from_slice(buf);
+
+    let ptr = dma.physical();
+    let blocks = (len.div_ceil(ns.block_size as usize)) as u16;
+
+    let cmd = NvmeCmd::io_write(1, ns.id, lba, blocks.saturating_sub(1), ptr as u64, 0);
+
+    let sq_id = 1;
+    let cqe = NvmeExecutor::current().submit(sq_id, cmd).await;
+
+    if (cqe.status >> 1) == 0 {
+        Ok(len)
+    } else {
+        Err(syscall::Error::new(syscall::EIO))
     }
 }
 
-/// Async read operation
-pub async fn read_async(
+pub async fn read_phys(
+    nvme: &Nvme,
+    ns: &NvmeNamespace,
     lba: u64,
-    num_blocks: u16,
-    buffer: &mut [u8],
-) -> Result<usize, &'static str> {
-    log::debug!("Async read: LBA={}, blocks={}", lba, num_blocks);
+    phys_addr: usize,
+    size: usize,
+) -> Result<usize> {
+    if size == 0 {
+        return Ok(0);
+    }
 
-    // Submit read command
-    // Wait for completion
+    let blocks = (size.div_ceil(ns.block_size as usize)) as u16;
 
-    Ok(num_blocks as usize * 512)
+    let cmd = NvmeCmd::io_read(1, ns.id, lba, blocks.saturating_sub(1), phys_addr as u64, 0);
+
+    let sq_id = 1;
+    let cqe = NvmeExecutor::current().submit(sq_id, cmd).await;
+
+    if (cqe.status >> 1) == 0 {
+        Ok(size)
+    } else {
+        Err(syscall::Error::new(syscall::EIO))
+    }
 }
 
-/// Async write operation
-pub async fn write_async(lba: u64, num_blocks: u16, buffer: &[u8]) -> Result<usize, &'static str> {
-    log::debug!("Async write: LBA={}, blocks={}", lba, num_blocks);
+pub async fn write_phys(
+    nvme: &Nvme,
+    ns: &NvmeNamespace,
+    lba: u64,
+    phys_addr: usize,
+    size: usize,
+) -> Result<usize> {
+    if size == 0 {
+        return Ok(0);
+    }
 
-    // Submit write command
-    // Wait for completion
+    let blocks = (size.div_ceil(ns.block_size as usize)) as u16;
 
-    Ok(num_blocks as usize * 512)
+    let cmd = NvmeCmd::io_write(1, ns.id, lba, blocks.saturating_sub(1), phys_addr as u64, 0);
+
+    let sq_id = 1;
+    let cqe = NvmeExecutor::current().submit(sq_id, cmd).await;
+
+    if (cqe.status >> 1) == 0 {
+        Ok(size)
+    } else {
+        Err(syscall::Error::new(syscall::EIO))
+    }
 }
