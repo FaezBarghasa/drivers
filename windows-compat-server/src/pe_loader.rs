@@ -198,16 +198,49 @@ impl PeLoader {
         let _size_of_headers = self.read_u32(&mut file)?;
         let _checksum = self.read_u32(&mut file)?;
         let subsystem = self.read_u16(&mut file)?;
+        let _dll_char = self.read_u16(&mut file)?;
 
-        // Skip to end of optional header and read sections
-        let opt_header_end = pe_offset as u64 + 24 + opt_header_size as u64;
-        file.seek(SeekFrom::Start(opt_header_end))
-            .map_err(|_| NtStatus::InvalidImageFormat)?;
+        if is_64bit {
+            let _stack_res = self.read_u64(&mut file)?;
+            let _stack_com = self.read_u64(&mut file)?;
+            let _heap_res = self.read_u64(&mut file)?;
+            let _heap_com = self.read_u64(&mut file)?;
+        } else {
+            let _stack_res = self.read_u32(&mut file)?;
+            let _stack_com = self.read_u32(&mut file)?;
+            let _heap_res = self.read_u32(&mut file)?;
+            let _heap_com = self.read_u32(&mut file)?;
+        }
 
+        let _loader_flags = self.read_u32(&mut file)?;
+        let num_rva_and_sizes = self.read_u32(&mut file)?;
+
+        // Data Directories
+        let mut import_dir_rva = 0;
+
+        for i in 0..num_rva_and_sizes {
+            let rva = self.read_u32(&mut file)?;
+            let _size = self.read_u32(&mut file)?;
+
+            if i == 1 {
+                import_dir_rva = rva;
+            }
+        }
+
+        // Read Sections
         let mut sections = Vec::new();
+        // Section headers follow Optional Header immediately.
+        // We already read all of Optional Header (including Data Dirs).
+
         for _ in 0..num_sections {
             let section = self.read_section(&mut file)?;
             sections.push(section);
+        }
+
+        // Parse Imports
+        let mut imports = Vec::new();
+        if import_dir_rva != 0 {
+            imports = self.parse_imports(&mut file, import_dir_rva, &sections)?;
         }
 
         Ok(PeInfo {
@@ -217,9 +250,82 @@ impl PeLoader {
             entry_point: image_base + entry_point_rva as usize,
             size_of_image: size_of_image as usize,
             sections,
-            imports: Vec::new(), // TODO: Parse import directory
+            imports,
             is_64bit,
         })
+    }
+
+    fn parse_imports(
+        &self,
+        file: &mut File,
+        dir_rva: u32,
+        sections: &[Section],
+    ) -> Result<Vec<Import>, NtStatus> {
+        let mut imports = Vec::new();
+
+        let offset = self
+            .rva_to_offset(dir_rva, sections)
+            .ok_or(NtStatus::InvalidImageFormat)?;
+        file.seek(SeekFrom::Start(offset as u64))
+            .map_err(|_| NtStatus::InvalidImageFormat)?;
+
+        loop {
+            let original_first_thunk = self.read_u32(file)?;
+            let _time_date_stamp = self.read_u32(file)?;
+            let _forwarder_chain = self.read_u32(file)?;
+            let name_rva = self.read_u32(file)?;
+            let first_thunk = self.read_u32(file)?;
+
+            if original_first_thunk == 0 && name_rva == 0 && first_thunk == 0 {
+                break;
+            }
+
+            let current_pos = file.stream_position().map_err(|_| NtStatus::Unsuccessful)?;
+
+            let name_offset = self
+                .rva_to_offset(name_rva, sections)
+                .ok_or(NtStatus::InvalidImageFormat)?;
+            file.seek(SeekFrom::Start(name_offset as u64))
+                .map_err(|_| NtStatus::Unsuccessful)?;
+            let dll_name = self.read_string(file)?;
+
+            // Should verify that dll_name is valid UTF-8 and non-empty
+
+            imports.push(Import {
+                dll_name,
+                functions: Vec::new(), // Stubs for now
+            });
+
+            file.seek(SeekFrom::Start(current_pos))
+                .map_err(|_| NtStatus::Unsuccessful)?;
+        }
+
+        Ok(imports)
+    }
+
+    fn rva_to_offset(&self, rva: u32, sections: &[Section]) -> Option<u32> {
+        for section in sections {
+            if rva >= section.virtual_address
+                && rva < section.virtual_address + section.virtual_size
+            {
+                return Some(section.raw_data_ptr + (rva - section.virtual_address));
+            }
+        }
+        None
+    }
+
+    fn read_string(&self, file: &mut File) -> Result<String, NtStatus> {
+        let mut bytes = Vec::new();
+        let mut buf = [0u8; 1];
+        loop {
+            file.read_exact(&mut buf)
+                .map_err(|_| NtStatus::InvalidImageFormat)?;
+            if buf[0] == 0 {
+                break;
+            }
+            bytes.push(buf[0]);
+        }
+        Ok(String::from_utf8_lossy(&bytes).to_string())
     }
 
     fn read_section(&self, file: &mut File) -> Result<Section, NtStatus> {

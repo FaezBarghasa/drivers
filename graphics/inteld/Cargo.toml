@@ -27,3 +27,5 @@ redox_syscall = "0.5"
 [features]
 default = []
 debug-logging = []
+
+[workspace]

@@ -60,9 +60,9 @@ pub struct Process {
     /// Memory regions
     memory: spin::RwLock<MemoryMap>,
     /// Signal state
-    signals: spin::RwLock<SignalState>,
+    pub signals: spin::RwLock<SignalState>,
     /// Threads in this process
-    threads: spin::RwLock<Vec<Arc<Thread>>>,
+    pub threads: spin::RwLock<Vec<Arc<Thread>>>,
     /// File descriptor table
     fd_table: spin::RwLock<FdTable>,
     /// Creation time (nanoseconds since boot)
@@ -457,18 +457,22 @@ impl Process {
     pub fn dup_fd(&self, oldfd: i32) -> Result<i32, LinuxErrno> {
         let mut fd_table = self.fd_table.write();
 
-        if let Some(old_file) = fd_table.files.get(&oldfd) {
+        // Clone the file descriptor to avoid borrowing fd_table while inserting
+        let old_file_clone = if let Some(old_file) = fd_table.files.get(&oldfd) {
+            Some(FileDescriptor {
+                path: old_file.path.clone(),
+                flags: old_file.flags,
+                offset: old_file.offset,
+            })
+        } else {
+            None
+        };
+
+        if let Some(new_file) = old_file_clone {
             let newfd = fd_table.next_fd;
             fd_table.next_fd += 1;
 
-            fd_table.files.insert(
-                newfd,
-                FileDescriptor {
-                    path: old_file.path.clone(),
-                    flags: old_file.flags,
-                    offset: old_file.offset,
-                },
-            );
+            fd_table.files.insert(newfd, new_file);
 
             Ok(newfd)
         } else {
@@ -485,7 +489,7 @@ impl Thread {
             state: spin::RwLock::new(ThreadState::Running),
             tls_ptr: AtomicU64::new(0),
             clear_child_tid: AtomicU64::new(0),
-            registers: spin::RwLock::new(RegisterState::default()),
+            pub registers: spin::RwLock<RegisterState>,
         }
     }
 

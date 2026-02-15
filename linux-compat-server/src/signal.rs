@@ -2,6 +2,7 @@
 //!
 //! This module implements Linux signal semantics.
 
+use redox_syscall;
 use std::collections::VecDeque;
 
 /// Linux signal numbers
@@ -41,6 +42,35 @@ pub enum Signal {
     SIGSYS = 31,
     // Real-time signals
     SIGRTMIN = 34,
+    SIGRT_1 = 35,
+    SIGRT_2 = 36,
+    SIGRT_3 = 37,
+    SIGRT_4 = 38,
+    SIGRT_5 = 39,
+    SIGRT_6 = 40,
+    SIGRT_7 = 41,
+    SIGRT_8 = 42,
+    SIGRT_9 = 43,
+    SIGRT_10 = 44,
+    SIGRT_11 = 45,
+    SIGRT_12 = 46,
+    SIGRT_13 = 47,
+    SIGRT_14 = 48,
+    SIGRT_15 = 49,
+    SIGRT_16 = 50,
+    SIGRT_17 = 51,
+    SIGRT_18 = 52,
+    SIGRT_19 = 53,
+    SIGRT_20 = 54,
+    SIGRT_21 = 55,
+    SIGRT_22 = 56,
+    SIGRT_23 = 57,
+    SIGRT_24 = 58,
+    SIGRT_25 = 59,
+    SIGRT_26 = 60,
+    SIGRT_27 = 61,
+    SIGRT_28 = 62,
+    SIGRT_29 = 63,
     SIGRTMAX = 64,
 }
 
@@ -79,7 +109,37 @@ impl Signal {
             29 => Some(Self::SIGIO),
             30 => Some(Self::SIGPWR),
             31 => Some(Self::SIGSYS),
-            34..=64 => Some(Self::SIGRTMIN), // Simplified RT handling
+            34 => Some(Self::SIGRTMIN),
+            35 => Some(Self::SIGRT_1),
+            36 => Some(Self::SIGRT_2),
+            37 => Some(Self::SIGRT_3),
+            38 => Some(Self::SIGRT_4),
+            39 => Some(Self::SIGRT_5),
+            40 => Some(Self::SIGRT_6),
+            41 => Some(Self::SIGRT_7),
+            42 => Some(Self::SIGRT_8),
+            43 => Some(Self::SIGRT_9),
+            44 => Some(Self::SIGRT_10),
+            45 => Some(Self::SIGRT_11),
+            46 => Some(Self::SIGRT_12),
+            47 => Some(Self::SIGRT_13),
+            48 => Some(Self::SIGRT_14),
+            49 => Some(Self::SIGRT_15),
+            50 => Some(Self::SIGRT_16),
+            51 => Some(Self::SIGRT_17),
+            52 => Some(Self::SIGRT_18),
+            53 => Some(Self::SIGRT_19),
+            54 => Some(Self::SIGRT_20),
+            55 => Some(Self::SIGRT_21),
+            56 => Some(Self::SIGRT_22),
+            57 => Some(Self::SIGRT_23),
+            58 => Some(Self::SIGRT_24),
+            59 => Some(Self::SIGRT_25),
+            60 => Some(Self::SIGRT_26),
+            61 => Some(Self::SIGRT_27),
+            62 => Some(Self::SIGRT_28),
+            63 => Some(Self::SIGRT_29),
+            64 => Some(Self::SIGRTMAX), // 64
             _ => None,
         }
     }
@@ -118,7 +178,37 @@ impl Signal {
             Self::SIGIO => "SIGIO",
             Self::SIGPWR => "SIGPWR",
             Self::SIGSYS => "SIGSYS",
-            Self::SIGRTMIN | Self::SIGRTMAX => "SIGRT",
+            Self::SIGRTMIN
+            | Self::SIGRT_1
+            | Self::SIGRT_2
+            | Self::SIGRT_3
+            | Self::SIGRT_4
+            | Self::SIGRT_5
+            | Self::SIGRT_6
+            | Self::SIGRT_7
+            | Self::SIGRT_8
+            | Self::SIGRT_9
+            | Self::SIGRT_10
+            | Self::SIGRT_11
+            | Self::SIGRT_12
+            | Self::SIGRT_13
+            | Self::SIGRT_14
+            | Self::SIGRT_15
+            | Self::SIGRT_16
+            | Self::SIGRT_17
+            | Self::SIGRT_18
+            | Self::SIGRT_19
+            | Self::SIGRT_20
+            | Self::SIGRT_21
+            | Self::SIGRT_22
+            | Self::SIGRT_23
+            | Self::SIGRT_24
+            | Self::SIGRT_25
+            | Self::SIGRT_26
+            | Self::SIGRT_27
+            | Self::SIGRT_28
+            | Self::SIGRT_29
+            | Self::SIGRTMAX => "SIGRT",
         }
     }
 
@@ -167,7 +257,105 @@ impl Signal {
             Self::SIGCHLD | Self::SIGURG | Self::SIGWINCH => SignalAction::Ignore,
 
             // Real-time signals default to terminate
-            Self::SIGRTMIN | Self::SIGRTMAX => SignalAction::Terminate,
+            Self::SIGRTMIN
+            | Self::SIGRT_1
+            | Self::SIGRT_2
+            | Self::SIGRT_3
+            | Self::SIGRT_4
+            | Self::SIGRT_5
+            | Self::SIGRT_6
+            | Self::SIGRT_7
+            | Self::SIGRT_8
+            | Self::SIGRT_9
+            | Self::SIGRT_10
+            | Self::SIGRT_11
+            | Self::SIGRT_12
+            | Self::SIGRT_13
+            | Self::SIGRT_14
+            | Self::SIGRT_15
+            | Self::SIGRT_16
+            | Self::SIGRT_17
+            | Self::SIGRT_18
+            | Self::SIGRT_19
+            | Self::SIGRT_20
+            | Self::SIGRT_21
+            | Self::SIGRT_22
+            | Self::SIGRT_23
+            | Self::SIGRT_24
+            | Self::SIGRT_25
+            | Self::SIGRT_26
+            | Self::SIGRT_27
+            | Self::SIGRT_28
+            | Self::SIGRT_29
+            | Self::SIGRTMAX => SignalAction::Terminate,
+        }
+    }
+
+    /// Convert to Redox signal number
+    pub fn to_redox(&self) -> Option<usize> {
+        match self {
+            Self::SIGHUP => Some(redox_syscall::SIGHUP),
+            Self::SIGINT => Some(redox_syscall::SIGINT),
+            Self::SIGQUIT => Some(redox_syscall::SIGQUIT),
+            Self::SIGILL => Some(redox_syscall::SIGILL),
+            Self::SIGTRAP => Some(redox_syscall::SIGTRAP),
+            Self::SIGABRT => Some(redox_syscall::SIGABRT),
+            Self::SIGBUS => Some(redox_syscall::SIGBUS),
+            Self::SIGFPE => Some(redox_syscall::SIGFPE),
+            Self::SIGKILL => Some(redox_syscall::SIGKILL),
+            Self::SIGUSR1 => Some(redox_syscall::SIGUSR1),
+            Self::SIGSEGV => Some(redox_syscall::SIGSEGV),
+            Self::SIGUSR2 => Some(redox_syscall::SIGUSR2),
+            Self::SIGPIPE => Some(redox_syscall::SIGPIPE),
+            Self::SIGALRM => Some(redox_syscall::SIGALRM),
+            Self::SIGTERM => Some(redox_syscall::SIGTERM),
+            Self::SIGSTKFLT => None, // Not in Redox?
+            Self::SIGCHLD => Some(redox_syscall::SIGCHLD),
+            Self::SIGCONT => Some(redox_syscall::SIGCONT),
+            Self::SIGSTOP => Some(redox_syscall::SIGSTOP),
+            Self::SIGTSTP => Some(redox_syscall::SIGTSTP),
+            Self::SIGTTIN => Some(redox_syscall::SIGTTIN),
+            Self::SIGTTOU => Some(redox_syscall::SIGTTOU),
+            Self::SIGURG => Some(redox_syscall::SIGURG),
+            Self::SIGXCPU => Some(redox_syscall::SIGXCPU),
+            Self::SIGXFSZ => Some(redox_syscall::SIGXFSZ),
+            Self::SIGVTALRM => Some(redox_syscall::SIGVTALRM),
+            Self::SIGPROF => Some(redox_syscall::SIGPROF),
+            Self::SIGWINCH => Some(redox_syscall::SIGWINCH),
+            Self::SIGIO => Some(redox_syscall::SIGIO),
+            Self::SIGPWR => Some(redox_syscall::SIGPWR),
+            Self::SIGSYS => Some(redox_syscall::SIGSYS),
+            Self::SIGRTMIN
+            | Self::SIGRT_1
+            | Self::SIGRT_2
+            | Self::SIGRT_3
+            | Self::SIGRT_4
+            | Self::SIGRT_5
+            | Self::SIGRT_6
+            | Self::SIGRT_7
+            | Self::SIGRT_8
+            | Self::SIGRT_9
+            | Self::SIGRT_10
+            | Self::SIGRT_11
+            | Self::SIGRT_12
+            | Self::SIGRT_13
+            | Self::SIGRT_14
+            | Self::SIGRT_15
+            | Self::SIGRT_16
+            | Self::SIGRT_17
+            | Self::SIGRT_18
+            | Self::SIGRT_19
+            | Self::SIGRT_20
+            | Self::SIGRT_21
+            | Self::SIGRT_22
+            | Self::SIGRT_23
+            | Self::SIGRT_24
+            | Self::SIGRT_25
+            | Self::SIGRT_26
+            | Self::SIGRT_27
+            | Self::SIGRT_28
+            | Self::SIGRT_29
+            | Self::SIGRTMAX => None, // No RT signals in basic map
         }
     }
 }
@@ -215,6 +403,16 @@ pub struct SigAction {
     pub restorer: u64,
     /// Signal mask during handler
     pub mask: u64,
+}
+
+/// Linux sigaction structure (for syscall interface)
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub struct LinuxSigAction {
+    pub sa_handler: u64,
+    pub sa_flags: u64,
+    pub sa_restorer: u64,
+    pub sa_mask: u64,
 }
 
 /// Signal flags
@@ -314,7 +512,7 @@ pub mod si_code {
 }
 
 /// Signal state for a process
-#[derive(Default)]
+/// Signal state for a process
 pub struct SignalState {
     /// Signal handlers
     handlers: [SigAction; 64],
@@ -324,6 +522,17 @@ pub struct SignalState {
     blocked: u64,
     /// Alternate signal stack
     alt_stack: Option<SignalStack>,
+}
+
+impl Default for SignalState {
+    fn default() -> Self {
+        Self {
+            handlers: [SigAction::default(); 64],
+            pending: VecDeque::new(),
+            blocked: 0,
+            alt_stack: None,
+        }
+    }
 }
 
 /// Alternate signal stack
@@ -365,6 +574,18 @@ impl SignalState {
             return SigAction::default();
         }
         self.handlers[idx]
+    }
+
+    /// Get blocked signals
+    pub fn blocked(&self) -> u64 {
+        self.blocked
+    }
+
+    /// Set blocked signals
+    pub fn set_blocked(&mut self, mask: u64) {
+        // SIGKILL and SIGSTOP cannot be blocked
+        let unblockable = (1 << (Signal::SIGKILL as u32 - 1)) | (1 << (Signal::SIGSTOP as u32 - 1));
+        self.blocked = mask & !unblockable;
     }
 
     /// Queue a signal
@@ -447,4 +668,93 @@ pub fn send_signal(target_pid: u32, sig: Signal, sender_pid: u32, sender_uid: u3
         si_value: 0,
         si_addr: 0,
     }
+}
+/// Floating point state
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct FpState {
+    pub cwd: u16,
+    pub swd: u16,
+    pub ftw: u16,
+    pub fop: u16,
+    pub rip: u64,
+    pub rdp: u64,
+    pub mxcsr: u32,
+    pub mxcsr_mask: u32,
+    pub st_space: [u32; 32],
+    pub xmm_space: [u32; 64],
+    pub reserved2: [u32; 24],
+}
+
+impl Default for FpState {
+    fn default() -> Self {
+        Self {
+            cwd: 0,
+            swd: 0,
+            ftw: 0,
+            fop: 0,
+            rip: 0,
+            rdp: 0,
+            mxcsr: 0,
+            mxcsr_mask: 0,
+            st_space: [0; 32],
+            xmm_space: [0; 64],
+            reserved2: [0; 24],
+        }
+    }
+}
+
+/// Machine context (registers)
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub struct MContext {
+    pub r8: u64,
+    pub r9: u64,
+    pub r10: u64,
+    pub r11: u64,
+    pub r12: u64,
+    pub r13: u64,
+    pub r14: u64,
+    pub r15: u64,
+    pub rdi: u64,
+    pub rsi: u64,
+    pub rbp: u64,
+    pub rbx: u64,
+    pub rdx: u64,
+    pub rax: u64,
+    pub rcx: u64,
+    pub rsp: u64,
+    pub rip: u64,
+    pub eflags: u64,
+    pub cs: u16,
+    pub gs: u16,
+    pub fs: u16,
+    pub __pad0: u16,
+    pub err: u64,
+    pub trapno: u64,
+    pub oldmask: u64,
+    pub cr2: u64,
+    pub fpstate: u64, // Pointer to FpState
+    pub __reserved1: [u64; 8],
+}
+
+/// Stack descriptor (Linux layout)
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub struct LinuxStackT {
+    pub ss_sp: u64,
+    pub ss_flags: i32,
+    pub ss_size: usize,
+}
+
+/// User context
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub struct UContext {
+    pub uc_flags: u64,
+    pub uc_link: u64, // pointer to UContext
+    pub uc_stack: LinuxStackT,
+    pub uc_mcontext: MContext,
+    pub uc_sigmask: u64,
+    pub __fpregs_mem: FpState,
 }

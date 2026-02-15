@@ -446,6 +446,109 @@ fn build_func(
     }
 }
 
+fn check_cxl_capability(
+    pcie: &Pcie,
+    addr: PciAddress,
+    full_device_id: &pcid_interface::FullDeviceId,
+) {
+    // CXL Class Code is 0x14 (Compute Express Link)
+    let is_cxl = full_device_id.class == 0x14 || full_device_id.class == 0x05;
+
+    if is_cxl {
+        info!(
+            "CXL: Device Found: {} Class={:#04x}",
+            full_device_id.display(),
+            full_device_id.class
+        );
+
+        // Walk Extended Capabilities for DVSEC
+        let mut offset = 0x100;
+        // Simple safety limit to prevent infinite loops
+        for _ in 0..64 {
+            // Read Extended Capability Header
+            let header = unsafe { pcie.read(addr, offset) };
+            if header == 0 || header == 0xFFFF_FFFF {
+                break;
+            }
+
+            let cap_id = (header & 0xFFFF) as u16;
+            let version = ((header >> 16) & 0xF) as u8;
+            let next_offset = ((header >> 20) & 0xFFF) as u16;
+
+            // DVSEC Capability ID is 0x23
+            if cap_id == 0x23 {
+                // Read Vendor ID (Offset + 4)
+                let header2 = unsafe { pcie.read(addr, offset + 4) };
+                let vendor_id = (header2 & 0xFFFF) as u16;
+
+                // CXL Vendor ID is 0x1E98
+                if vendor_id == 0x1E98 {
+                    let dvsec_len = (header2 >> 16) >> 4; // Length is 12 bits starting at bit 20? No, bit 4 of high word?
+                                                          // Spec: Offset 4: [15:0] Vendor ID, [19:16] DVSEC Rev, [31:20] DVSEC Length.
+                    let _dvsec_len = (header2 >> 20) & 0xFFF;
+
+                    // Read DVSEC ID (Offset + 8)
+                    let header3 = unsafe { pcie.read(addr, offset + 8) };
+                    let dvsec_id = (header3 & 0xFFFF) as u16;
+
+                    info!(
+                        "CXL: Found CXL DVSEC ID={:#06x} at offset {:#05x}",
+                        dvsec_id, offset
+                    );
+
+                    if dvsec_id == 0 {
+                        // CXL Device Capability Structure (CXL 1.1)
+                        // Range 1 Base High: Offset + 0x1C
+                        let range1_base_hi = unsafe { pcie.read(addr, offset + 0x1C) };
+                        // Range 1 Base Low: Offset + 0x20
+                        let range1_base_lo = unsafe { pcie.read(addr, offset + 0x20) };
+                        // Range 1 Size High: Offset + 0x24
+                        let range1_size_hi = unsafe { pcie.read(addr, offset + 0x24) };
+                        // Range 1 Size Low: Offset + 0x28
+                        let range1_size_lo = unsafe { pcie.read(addr, offset + 0x28) };
+
+                        let base = ((range1_base_hi as u64) << 32) | (range1_base_lo as u64 & !0xF);
+                        let size = ((range1_size_hi as u64) << 32) | (range1_size_lo as u64 & !0xF);
+
+                        let valid = (range1_size_lo & 1) != 0;
+
+                        if size > 0 && valid {
+                            info!("CXL: Found Memory Range: Base={:#x} Size={:#x}", base, size);
+                            register_cxl_memory(base, size);
+                        }
+                    }
+                }
+            }
+
+            if next_offset == 0 || next_offset < 0x100 {
+                break;
+            }
+            offset = next_offset;
+        }
+    }
+}
+
+fn register_cxl_memory(base: u64, size: u64) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    match OpenOptions::new().write(true).open("memory:hotplug") {
+        Ok(mut file) => {
+            let mut buf = [0u8; 16];
+            buf[0..8].copy_from_slice(&base.to_ne_bytes());
+            buf[8..16].copy_from_slice(&size.to_ne_bytes());
+            match file.write(&buf) {
+                Ok(_) => info!(
+                    "CXL: Successfully registered memory region {:#x}+{:#x}",
+                    base, size
+                ),
+                Err(e) => warn!("CXL: Failed to write to memory:hotplug: {}", e),
+            }
+        }
+        Err(e) => warn!("CXL: Failed to open memory:hotplug: {}", e),
+    }
+}
+
 // Redefined scan_device_pure properly
 fn scan_device_pure(pcie: &Pcie, bus_num: u8, dev_num: u8) -> Option<Vec<(Option<Func>, Vec<u8>)>> {
     let mut results = Vec::new();
@@ -472,6 +575,9 @@ fn scan_device_pure(pcie: &Pcie, bus_num: u8, dev_num: u8) -> Option<Vec<(Option
         };
 
         info!("PCI {} {}", header.address(), full_device_id.display());
+
+        // Check for CXL capabilities
+        check_cxl_capability(pcie, header.address(), &full_device_id);
 
         let has_multiple_functions = header.has_multiple_functions(pcie);
 

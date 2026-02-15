@@ -47,7 +47,7 @@ pub enum LinuxErrno {
     ENOSYS = 38,
     ENOTEMPTY = 39,
     ELOOP = 40,
-    EWOULDBLOCK = 11, // Same as EAGAIN
+    // EWOULDBLOCK = 11, // Same as EAGAIN
     ENOMSG = 42,
     EIDRM = 43,
     ECHRNG = 44,
@@ -64,7 +64,7 @@ pub enum LinuxErrno {
     ENOANO = 55,
     EBADRQC = 56,
     EBADSLT = 57,
-    EDEADLOCK = 35, // Same as EDEADLK
+    // EDEADLOCK = 35, // Same as EDEADLK
     EBFONT = 59,
     ENOSTR = 60,
     ENODATA = 61,
@@ -235,13 +235,13 @@ impl LinuxErrno {
             Self::EPIPE => "Broken pipe",
             Self::EDOM => "Math argument out of domain",
             Self::ERANGE => "Math result not representable",
-            Self::EDEADLK | Self::EDEADLOCK => "Resource deadlock avoided",
+            Self::EDEADLK => "Resource deadlock avoided",
             Self::ENAMETOOLONG => "File name too long",
             Self::ENOLCK => "No record locks available",
             Self::ENOSYS => "Function not implemented",
             Self::ENOTEMPTY => "Directory not empty",
             Self::ELOOP => "Too many symbolic links",
-            Self::EWOULDBLOCK => "Operation would block",
+            // Self::EWOULDBLOCK => "Operation would block", // Same as EAGAIN
             Self::ECONNREFUSED => "Connection refused",
             Self::ETIMEDOUT => "Connection timed out",
             Self::ECONNRESET => "Connection reset by peer",

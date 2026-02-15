@@ -404,3 +404,158 @@ pub fn delay_us(us: u32, cpu_freq_mhz: u32) {
     let cycles = us * cpu_freq_mhz;
     delay_cycles(cycles);
 }
+
+/// Physical Memory Protection (PMP) implementation
+pub mod pmp {
+    use core::arch::asm;
+
+    /// PMP configuration byte fields
+    pub mod cfg {
+        pub const R: u8 = 1 << 0;
+        pub const W: u8 = 1 << 1;
+        pub const X: u8 = 1 << 2;
+        pub const A_OFF: u8 = 0 << 3;
+        pub const A_TOR: u8 = 1 << 3;
+        pub const A_NA4: u8 = 2 << 3;
+        pub const A_NAPOT: u8 = 3 << 3;
+        pub const L: u8 = 1 << 7;
+    }
+
+    /// Write pmpcfg CSRs
+    ///
+    /// pmpcfg0 controls pmp0..3
+    /// pmpcfg2 controls pmp4..7 (on RV32)
+    /// etc.
+    #[inline]
+    pub unsafe fn write_pmpcfg(idx: usize, val: u32) {
+        match idx {
+            0 => asm!("csrw pmpcfg0, {}", in(reg) val),
+            1 => asm!("csrw pmpcfg1, {}", in(reg) val), // RV32: pmp4..7
+            2 => asm!("csrw pmpcfg2, {}", in(reg) val), // RV32: pmp8..11
+            3 => asm!("csrw pmpcfg3, {}", in(reg) val), // RV32: pmp12..15
+            _ => panic!("invalid pmpcfg index"),
+        }
+    }
+
+    /// Write pmpaddr CSR
+    #[inline]
+    pub unsafe fn write_pmpaddr(idx: usize, val: u32) {
+        // CSR indices for pmpaddr are 0x3B0 + idx
+        // We can't use variable CSR in asm with immediate.
+        // Needs a match.
+        match idx {
+            0 => asm!("csrw pmpaddr0, {}", in(reg) val),
+            1 => asm!("csrw pmpaddr1, {}", in(reg) val),
+            2 => asm!("csrw pmpaddr2, {}", in(reg) val),
+            3 => asm!("csrw pmpaddr3, {}", in(reg) val),
+            4 => asm!("csrw pmpaddr4, {}", in(reg) val),
+            5 => asm!("csrw pmpaddr5, {}", in(reg) val),
+            6 => asm!("csrw pmpaddr6, {}", in(reg) val),
+            7 => asm!("csrw pmpaddr7, {}", in(reg) val),
+            8 => asm!("csrw pmpaddr8, {}", in(reg) val),
+            9 => asm!("csrw pmpaddr9, {}", in(reg) val),
+            10 => asm!("csrw pmpaddr10, {}", in(reg) val),
+            11 => asm!("csrw pmpaddr11, {}", in(reg) val),
+            12 => asm!("csrw pmpaddr12, {}", in(reg) val),
+            13 => asm!("csrw pmpaddr13, {}", in(reg) val),
+            14 => asm!("csrw pmpaddr14, {}", in(reg) val),
+            15 => asm!("csrw pmpaddr15, {}", in(reg) val),
+            _ => panic!("invalid pmpaddr index"),
+        }
+    }
+
+    /// Calculate NAPOT address encoding
+    /// Base must be aligned to size, size must be power of 2 >= 4.
+    pub fn napot_encode(base: u32, size: u32) -> u32 {
+        // NAPOT:
+        // Bits are 1 until LSB 0.
+        // e.g. 8 bytes: yyyy...y011
+        // encoded = (base >> 2) | ((size/2 - 1) >> 1) ?
+        // Spec:
+        // NAPOT range size 2^(i+3) bytes
+        // pmpaddr = (base >> 2) | (01...1) with i ones.
+        //
+        // Example size 4KB = 2^12. i=9.
+        // pmpaddr = (base >> 2) | 0x1FF (9 ones).
+        //
+        // bitmask = (size >> 3) - 1.
+        // pmpaddr = (base >> 2) | bitmask.
+        if size < 4 {
+            return 0;
+        }
+        let bitmask = (size >> 3) - 1;
+        (base >> 2) | bitmask
+    }
+
+    /// Region definition for PMP
+    #[derive(Debug, Clone, Copy)]
+    pub struct PmpRegion {
+        pub base: u32,
+        pub size: u32,
+        pub r: bool,
+        pub w: bool,
+        pub x: bool,
+        pub active: bool,
+    }
+
+    /// Configure PMP with provided zones
+    pub fn configure(regions: &[PmpRegion]) {
+        // We assume zones map to PMP entries 0..N.
+        // PMP priority is lowest index first (on match, use that rule).
+        // Or highest? "Priority is highest number" if implemented?
+        // Spec: "Matching PMP entry with lowest index takes priority."
+        // except if locked?
+        // Wait, "The highest numbered PMP entry that matches ... determines permissions."?
+        // NO. "The lowest-numbered PMP entry that matches any byte of the access determines the permissions." (Privileged Spec).
+
+        let mut pmpcfg = [0u8; 16];
+        let mut pmpaddr = [0u32; 16];
+
+        for (i, zone) in regions.iter().enumerate() {
+            if i >= 16 {
+                break;
+            }
+            if !zone.active {
+                continue;
+            }
+
+            // Convert permissions
+            let mut cfg = cfg::A_NAPOT; // Use NAPOT for simplicity (requires alignment)
+                                        // TODO: Fallback to TOR if not aligned?
+                                        // User requirement: "Flat memory model must correctly translate".
+                                        // We assume aligned zones.
+
+            if zone.r {
+                cfg |= cfg::R;
+            }
+            if zone.w {
+                cfg |= cfg::W;
+            }
+            if zone.x {
+                cfg |= cfg::X;
+            }
+
+            pmpcfg[i] = cfg;
+            pmpaddr[i] = napot_encode(zone.base, zone.size);
+        }
+
+        // Write to CSRs
+        // Packing 4 configs into u32
+        for i in 0..4 {
+            let mut val = 0u32;
+            val |= (pmpcfg[i * 4 + 0] as u32) << 0;
+            val |= (pmpcfg[i * 4 + 1] as u32) << 8;
+            val |= (pmpcfg[i * 4 + 2] as u32) << 16;
+            val |= (pmpcfg[i * 4 + 3] as u32) << 24;
+            unsafe {
+                write_pmpcfg(i, val);
+            }
+        }
+
+        for i in 0..16 {
+            unsafe {
+                write_pmpaddr(i, pmpaddr[i]);
+            }
+        }
+    }
+}

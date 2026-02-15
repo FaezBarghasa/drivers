@@ -87,8 +87,10 @@ mod translator;
 
 pub use errno::LinuxErrno;
 pub use process::{Process, ProcessState};
+
 pub use syscall_table::LinuxSyscall;
-pub use translator::SyscallTranslator;
+
+pub use translator::{SyscallContext, SyscallTranslator};
 
 /// LAC server configuration
 #[derive(Debug, Clone)]
@@ -253,7 +255,7 @@ fn daemon(daemon: redox_daemon::Daemon) -> ! {
                     match request.kind() {
                         RequestKind::Call(call) => {
                             // Handle scheme calls
-                            let response = handle_scheme_call(&server, call);
+                            let response = handle_scheme_call(&server, request.pid() as u32, call);
                             socket
                                 .write_response(response, SignalBehavior::Restart)
                                 .expect("lacd: failed to write response");
@@ -269,11 +271,35 @@ fn daemon(daemon: redox_daemon::Daemon) -> ! {
 }
 
 fn handle_scheme_call(
-    _server: &Arc<LacServer>,
+    server: &Arc<LacServer>,
+    pid: u32,
     call: redox_scheme::Call,
 ) -> redox_scheme::Response {
-    // Basic scheme handling - would be extended for full functionality
-    call.error(syscall::error::ENOSYS)
+    match call {
+        redox_scheme::Call::Write(write) => {
+            // Treat write to root as a syscall request for now
+            // We interpret the buffer as a SyscallContext
+
+            if write.count != std::mem::size_of::<SyscallContext>() {
+                return call.error(syscall::error::EINVAL);
+            }
+
+            // SAFETY: We trust the kernel/caller to provide a valid context buffer size
+            // In reality, we should be very careful here.
+            let ctx = unsafe { &*(write.buf.as_ptr() as *const SyscallContext) };
+
+            // Retrieve the process
+            if let Some(process) = server.get_process(pid) {
+                let result = server.translator().translate(ctx, &process);
+                let raw = result.to_raw();
+                call.write(raw as usize)
+            } else {
+                log::error!("Process {} not found for syscall translation", pid);
+                call.error(syscall::error::ESRCH)
+            }
+        }
+        _ => call.error(syscall::error::ENOSYS),
+    }
 }
 
 fn main() {

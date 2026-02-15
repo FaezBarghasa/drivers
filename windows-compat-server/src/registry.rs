@@ -1,18 +1,19 @@
 //! Registry Emulation
 //!
-//! Maps Windows Registry to Redox filesystem.
+//! Maps Windows Registry to Redox filesystem using sled database.
 //! HKEY_LOCAL_MACHINE -> /windows/registry/machine
 //! HKEY_CURRENT_USER -> /windows/registry/user/<uid>
 //! HKEY_CLASSES_ROOT -> /windows/registry/classes
 
 use std::collections::BTreeMap;
-use std::fs::{self, File};
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::RwLock;
 
+use syscall::{Stat, MODE_DIR, MODE_FILE};
+
 use crate::errno::NtStatus;
-use crate::Handle;
+use crate::Handle; // Assuming Handle is u32 wrapper from main.rs or similar
 
 /// Registry value types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,9 +50,9 @@ impl From<u32> for RegType {
 }
 
 /// Registry value
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RegValue {
-    pub value_type: RegType,
+    pub value_type: u32,
     pub data: Vec<u8>,
 }
 
@@ -60,66 +61,63 @@ impl RegValue {
         let mut data: Vec<u8> = s.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
         data.extend_from_slice(&[0, 0]); // Null terminator
         Self {
-            value_type: RegType::Sz,
+            value_type: RegType::Sz as u32,
             data,
         }
     }
 
     pub fn dword(val: u32) -> Self {
         Self {
-            value_type: RegType::Dword,
+            value_type: RegType::Dword as u32,
             data: val.to_le_bytes().to_vec(),
         }
     }
 
     pub fn qword(val: u64) -> Self {
         Self {
-            value_type: RegType::Qword,
+            value_type: RegType::Qword as u32,
             data: val.to_le_bytes().to_vec(),
         }
     }
 
     pub fn binary(data: Vec<u8>) -> Self {
         Self {
-            value_type: RegType::Binary,
+            value_type: RegType::Binary as u32,
             data,
         }
     }
 }
 
-/// Registry key (maps to directory)
-#[derive(Debug)]
-pub struct RegKey {
-    pub path: PathBuf,
-    pub handle: Handle,
+/// Registry node type (handle target)
+#[derive(Debug, Clone)]
+pub enum RegNode {
+    Key(String),           // Path to key
+    Value(String, String), // Path to key, Value name
 }
 
-/// Registry handle manager
+/// Registry handle manager using sled
 pub struct Registry {
-    /// Base path for registry storage
-    base_path: PathBuf,
-    /// Open keys
-    open_keys: RwLock<BTreeMap<Handle, RegKey>>,
+    /// Database
+    db: sled::Db,
+    /// Open handles (Handle -> Node info)
+    open_handles: RwLock<BTreeMap<Handle, RegNode>>,
     /// Next handle value
     next_handle: std::sync::atomic::AtomicU32,
 }
 
 impl Registry {
     pub fn new(base_path: PathBuf) -> Self {
-        // Ensure base directories exist
-        let _ = fs::create_dir_all(base_path.join("machine"));
-        let _ = fs::create_dir_all(base_path.join("user"));
-        let _ = fs::create_dir_all(base_path.join("classes"));
+        let db = sled::open(base_path).expect("Failed to open registry database");
 
         Self {
-            base_path,
-            open_keys: RwLock::new(BTreeMap::new()),
+            db,
+            open_handles: RwLock::new(BTreeMap::new()),
             next_handle: std::sync::atomic::AtomicU32::new(0x80000000),
         }
     }
 
-    /// Convert Windows registry path to Redox path
-    fn map_path(&self, key_path: &str) -> Result<PathBuf, NtStatus> {
+    /// Convert Windows registry path to normalized string key
+    fn map_path(&self, key_path: &str) -> Result<String, NtStatus> {
         let key_path = key_path.trim_start_matches('\\');
 
         // Map predefined keys
@@ -130,9 +128,7 @@ impl Registry {
                 .trim_start_matches("REGISTRY\\MACHINE")
                 .trim_start_matches("HKEY_LOCAL_MACHINE")
                 .trim_start_matches('\\');
-            self.base_path
-                .join("machine")
-                .join(subpath.replace('\\', "/"))
+            format!("machine/{}", subpath.replace('\\', "/"))
         } else if key_path.starts_with("REGISTRY\\USER")
             || key_path.starts_with("HKEY_CURRENT_USER")
         {
@@ -140,45 +136,152 @@ impl Registry {
                 .trim_start_matches("REGISTRY\\USER")
                 .trim_start_matches("HKEY_CURRENT_USER")
                 .trim_start_matches('\\');
-            self.base_path.join("user").join(subpath.replace('\\', "/"))
+            format!("user/{}", subpath.replace('\\', "/"))
         } else if key_path.starts_with("HKEY_CLASSES_ROOT") {
             let subpath = key_path
                 .trim_start_matches("HKEY_CLASSES_ROOT")
                 .trim_start_matches('\\');
-            self.base_path
-                .join("classes")
-                .join(subpath.replace('\\', "/"))
+            format!("classes/{}", subpath.replace('\\', "/"))
         } else {
             return Err(NtStatus::ObjectPathInvalid);
         };
 
-        Ok(path)
+        Ok(path.to_lowercase()) // Registry is case-insensitive usually
     }
 
-    /// Open or create a registry key
-    pub fn open_key(&self, key_path: &str, create: bool) -> Result<Handle, NtStatus> {
-        let path = self.map_path(key_path)?;
+    /// Open or create a registry key or value
+    pub fn open(&self, path: &str, create: bool) -> Result<Handle, NtStatus> {
+        let path = self.map_path(path)?;
 
-        if create {
-            fs::create_dir_all(&path).map_err(|_| NtStatus::AccessDenied)?;
-        } else if !path.exists() {
-            return Err(NtStatus::ObjectNameNotFound);
+        // Strategy:
+        // 1. Check if it matches a Key
+        // 2. Check if it matches a Value
+
+        // For keys, we store a marker: "keys/<path>"
+        let meta_key = format!("keys/{}", path);
+        if self
+            .db
+            .contains_key(&meta_key)
+            .map_err(|_| NtStatus::Unsuccessful)?
+        {
+            // It's a key
+            let handle = self.alloc_handle();
+            self.open_handles
+                .write()
+                .unwrap()
+                .insert(handle, RegNode::Key(path));
+            return Ok(handle);
         }
 
-        let handle_val = self
-            .next_handle
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let handle = Handle(handle_val);
+        // Check if it is a value: "values/<parent>/<name>"
+        // The path passed to map_path is normalized.
+        // We need to split the last component to check for value.
+        if let Some(idx) = path.rfind('/') {
+            let parent = &path[..idx];
+            let name = &path[idx + 1..];
 
-        let key = RegKey { path, handle };
+            let val_key = format!("values/{}/{}", parent, name);
+            if self
+                .db
+                .contains_key(&val_key)
+                .map_err(|_| NtStatus::Unsuccessful)?
+            {
+                // It's a value
+                let handle = self.alloc_handle();
+                self.open_handles
+                    .write()
+                    .unwrap()
+                    .insert(handle, RegNode::Value(parent.to_string(), name.to_string()));
+                return Ok(handle);
+            }
 
-        self.open_keys.write().unwrap().insert(handle, key);
+            // If not found, and create is true, what do we create?
+            // Scheme semantics: O_DIRECTORY -> create key?
+            // Without O_DIRECTORY -> create value?
+            // But map_path normalizes everything.
+
+            // For now, if create is true, we fallback to creating a KEY if it looks like a directory semantics,
+            // or logic in main.rs should hint.
+            // But here we only have path.
+            // Assumption: If it doesn't exist, and we want to create, we need to know what.
+
+            // Simplification: We only support creating KEYs via `mkdir` (which calls Open?) no, mkdir calls mkdir.
+            // Open(O_CREAT) with O_DIRECTORY creates key.
+            // Open(O_CREAT) without O_DIRECTORY creates value.
+            // We need to update signature of `open`.
+        }
+
+        Err(NtStatus::ObjectNameNotFound)
+    }
+
+    pub fn create_key(&self, path: &str) -> Result<Handle, NtStatus> {
+        let path = self.map_path(path)?;
+        let meta_key = format!("keys/{}", path);
+
+        self.db
+            .insert(&meta_key, b"created")
+            .map_err(|_| NtStatus::Unsuccessful)?;
+
+        let handle = self.alloc_handle();
+        self.open_handles
+            .write()
+            .unwrap()
+            .insert(handle, RegNode::Key(path));
         Ok(handle)
     }
 
-    /// Close a registry key
-    pub fn close_key(&self, handle: Handle) -> Result<(), NtStatus> {
-        self.open_keys
+    pub fn create_value(&self, path: &str) -> Result<Handle, NtStatus> {
+        let path = self.map_path(path)?;
+        if let Some(idx) = path.rfind('/') {
+            let parent = &path[..idx];
+            let name = &path[idx + 1..];
+
+            // Ensure parent exists
+            let parent_key = format!("keys/{}", parent);
+            if !self
+                .db
+                .contains_key(&parent_key)
+                .map_err(|_| NtStatus::Unsuccessful)?
+            {
+                return Err(NtStatus::ObjectNameNotFound); // Parent key must exist
+            }
+
+            // Create empty value if not exists
+            let val_key = format!("values/{}/{}", parent, name);
+            if !self
+                .db
+                .contains_key(&val_key)
+                .map_err(|_| NtStatus::Unsuccessful)?
+            {
+                let default_val = RegValue::binary(vec![]);
+                let encoded =
+                    bincode::serialize(&default_val).map_err(|_| NtStatus::Unsuccessful)?;
+                self.db
+                    .insert(&val_key, encoded)
+                    .map_err(|_| NtStatus::Unsuccessful)?;
+            }
+
+            let handle = self.alloc_handle();
+            self.open_handles
+                .write()
+                .unwrap()
+                .insert(handle, RegNode::Value(parent.to_string(), name.to_string()));
+            Ok(handle)
+        } else {
+            Err(NtStatus::ObjectPathInvalid)
+        }
+    }
+
+    fn alloc_handle(&self) -> Handle {
+        let val = self
+            .next_handle
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Handle(val)
+    }
+
+    /// Close a registry handle
+    pub fn close(&self, handle: Handle) -> Result<(), NtStatus> {
+        self.open_handles
             .write()
             .unwrap()
             .remove(&handle)
@@ -191,14 +294,13 @@ impl Registry {
         let keys = self.open_keys.read().unwrap();
         let key = keys.get(&handle).ok_or(NtStatus::InvalidHandle)?;
 
-        let value_path = key.path.join(format!("{}.regval", name));
+        let db_key = format!("values/{}/{}", key.path, name.to_lowercase());
 
-        // Write header: type (4 bytes) + data
-        let mut file = File::create(&value_path).map_err(|_| NtStatus::AccessDenied)?;
-        file.write_all(&(value.value_type as u32).to_le_bytes())
-            .map_err(|_| NtStatus::AccessDenied)?;
-        file.write_all(&value.data)
-            .map_err(|_| NtStatus::AccessDenied)?;
+        let encoded = bincode::serialize(&value).map_err(|_| NtStatus::Unsuccessful)?;
+
+        self.db
+            .insert(db_key, encoded)
+            .map_err(|_| NtStatus::Unsuccessful)?;
 
         Ok(())
     }
@@ -208,32 +310,72 @@ impl Registry {
         let keys = self.open_keys.read().unwrap();
         let key = keys.get(&handle).ok_or(NtStatus::InvalidHandle)?;
 
-        let value_path = key.path.join(format!("{}.regval", name));
+        let db_key = format!("values/{}/{}", key.path, name.to_lowercase());
 
-        let mut file = File::open(&value_path).map_err(|_| NtStatus::ObjectNameNotFound)?;
+        let data = self.db.get(db_key).map_err(|_| NtStatus::Unsuccessful)?;
 
-        // Read header
-        let mut type_buf = [0u8; 4];
-        file.read_exact(&mut type_buf)
-            .map_err(|_| NtStatus::ObjectNameNotFound)?;
-        let value_type = RegType::from(u32::from_le_bytes(type_buf));
-
-        // Read data
-        let mut data = Vec::new();
-        file.read_to_end(&mut data)
-            .map_err(|_| NtStatus::ObjectNameNotFound)?;
-
-        Ok(RegValue { value_type, data })
+        if let Some(bytes) = data {
+            let val: RegValue = bincode::deserialize(&bytes).map_err(|_| NtStatus::Unsuccessful)?;
+            Ok(val)
+        } else {
+            Err(NtStatus::ObjectNameNotFound)
+        }
     }
 
-    /// Delete a value
+    /// Delete a value by handle and name
     pub fn delete_value(&self, handle: Handle, name: &str) -> Result<(), NtStatus> {
-        let keys = self.open_keys.read().unwrap();
+        let keys = self.open_handles.read().unwrap();
         let key = keys.get(&handle).ok_or(NtStatus::InvalidHandle)?;
 
-        let value_path = key.path.join(format!("{}.regval", name));
-        fs::remove_file(&value_path).map_err(|_| NtStatus::ObjectNameNotFound)?;
+        let db_key = format!("values/{}/{}", key.path, name.to_lowercase());
+        self.db.remove(db_key).map_err(|_| NtStatus::Unsuccessful)?;
 
+        Ok(())
+    }
+
+    /// Delete a key or value by path (scheme helper)
+    pub fn unlink(&self, path: &str) -> Result<(), NtStatus> {
+        let path = self.map_path(path)?;
+        
+        // Try value first
+        if let Some(idx) = path.rfind('/') {
+            let parent = &path[..idx];
+            let name = &path[idx+1..];
+            let val_key = format!("values/{}/{}", parent, name);
+             if self.db.contains_key(&val_key).unwrap_or(false) {
+                 self.db.remove(&val_key).map_err(|_| NtStatus::Unsuccessful)?;
+                 return Ok(());
+             }
+        }
+        
+        // Try key (rmdir logic, but unlink might call it?)
+        // In Redox, unlink is for files, rmdir for directories.
+        // We'll stricter separation if we can, but Unlink often tries both in some FS implementations or returns EISDIR.
+        // Let's return ObjectNameNotFound if not a value.
+        Err(NtStatus::ObjectNameNotFound)
+    }
+
+    /// Remove directory (Key)
+    pub fn rmdir(&self, path: &str) -> Result<(), NtStatus> {
+        let path = self.map_path(path)?;
+        let key_path = format!("keys/{}", path);
+        
+        // Check if exists
+        if !self.db.contains_key(&key_path).unwrap_or(false) {
+            return Err(NtStatus::ObjectNameNotFound);
+        }
+        
+        // Check if empty?
+        let prefix = format!("keys/{}/", path);
+        if self.db.scan_prefix(&prefix).next().is_some() {
+            return Err(NtStatus::Unsuccessful); // Not empty (Key has subkeys)
+        }
+        let val_prefix = format!("values/{}/", path);
+        if self.db.scan_prefix(&val_prefix).next().is_some() {
+             return Err(NtStatus::Unsuccessful); // Not empty (Key has values)
+        }
+        
+        self.db.remove(&key_path).map_err(|_| NtStatus::Unsuccessful)?;
         Ok(())
     }
 
@@ -242,38 +384,177 @@ impl Registry {
         let keys = self.open_keys.read().unwrap();
         let key = keys.get(&handle).ok_or(NtStatus::InvalidHandle)?;
 
+        let prefix = format!("keys/{}/", key.path);
         let mut subkeys = Vec::new();
-        for entry in fs::read_dir(&key.path).map_err(|_| NtStatus::AccessDenied)? {
-            if let Ok(entry) = entry {
-                if entry.path().is_dir() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        subkeys.push(name.to_string());
-                    }
-                }
+
+        for item in self.db.scan_prefix(&prefix) {
+            let (k, _) = item.map_err(|_| NtStatus::Unsuccessful)?;
+            let k_str = std::str::from_utf8(&k).map_err(|_| NtStatus::Unsuccessful)?;
+
+            // Extract direct child
+            // k_str: keys/parent/child/grandchild
+            // prefix: keys/parent/
+
+            let relative = &k_str[prefix.len()..];
+            if let Some(end) = relative.find('/') {
+                // it's a grandchild, skip if we want direct children only?
+                // Actually enumeration usually lists direct children.
+                // This logic is simplified; a real impl might need better tree structure.
+            } else {
+                subkeys.push(relative.to_string());
             }
         }
 
+        // simple dedup if needed, but here we assume keys are unique path strings
         Ok(subkeys)
     }
 
-    /// Enumerate values
-    pub fn enumerate_values(&self, handle: Handle) -> Result<Vec<String>, NtStatus> {
-        let keys = self.open_keys.read().unwrap();
-        let key = keys.get(&handle).ok_or(NtStatus::InvalidHandle)?;
+    /// Read from a handle (Directory listing for Key, Data for Value)
+    pub fn read(&self, handle: Handle, buf: &mut [u8]) -> Result<usize, NtStatus> {
+        let keys = self.open_handles.read().unwrap();
+        let node = keys.get(&handle).ok_or(NtStatus::InvalidHandle)?;
 
-        let mut values = Vec::new();
-        for entry in fs::read_dir(&key.path).map_err(|_| NtStatus::AccessDenied)? {
-            if let Ok(entry) = entry {
-                if entry.path().is_file() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        if let Some(name) = name.strip_suffix(".regval") {
-                            values.push(name.to_string());
+        match node {
+            RegNode::Key(path) => {
+                // Directory listing: format as "keys\nvalues\n" ?
+                // Or redox_scheme format?
+                // Usually simply separate by newlines or NUL?
+                // Let's use standard ls style: list keys then values.
+
+                let prefix = format!("keys/{}/", path);
+                let mut output = String::new();
+
+                // List Subkeys
+                for item in self.db.scan_prefix(&prefix) {
+                    if let Ok((k, _)) = item {
+                        if let Ok(k_str) = std::str::from_utf8(&k) {
+                            let relative = &k_str[prefix.len()..];
+                            if !relative.contains('/') {
+                                output.push_str(relative);
+                                output.push('\n');
+                            }
                         }
                     }
                 }
+
+                // List Values
+                let val_prefix = format!("values/{}/", path);
+                for item in self.db.scan_prefix(&val_prefix) {
+                    if let Ok((k, _)) = item {
+                        if let Ok(k_str) = std::str::from_utf8(&k) {
+                            let relative = &k_str[val_prefix.len()..];
+                            output.push_str(relative);
+                            output.push('\n');
+                        }
+                    }
+                }
+
+                let bytes = output.as_bytes();
+                let len = std::cmp::min(buf.len(), bytes.len());
+                buf[..len].copy_from_slice(&bytes[..len]);
+                Ok(len)
+            }
+            RegNode::Value(parent, name) => {
+                let db_key = format!("values/{}/{}", parent, name);
+                if let Some(data) = self.db.get(&db_key).map_err(|_| NtStatus::Unsuccessful)? {
+                    // We stored RegValue struct encoded.
+                    // But Call::Read expects raw bytes of the content? Or the formatted value?
+                    // If it's a file, we probably want the raw data.
+                    // But RegValue has type info.
+                    // Let's return the debug string representation for now or raw bytes if binary.
+
+                    let val: RegValue =
+                        bincode::deserialize(&data).map_err(|_| NtStatus::Unsuccessful)?;
+
+                    // Helper to format
+                    let content = match val.value_type {
+                        1 => {
+                            // SZ
+                            // Convert UTF-16 to UTF-8
+                            let u16s: Vec<u16> = val
+                                .data
+                                .chunks_exact(2)
+                                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                                .collect();
+                            String::from_utf16_lossy(&u16s)
+                                .trim_matches('\0')
+                                .to_string()
+                        }
+                        4 => {
+                            // DWORD
+                            if val.data.len() >= 4 {
+                                let v = u32::from_le_bytes([
+                                    val.data[0],
+                                    val.data[1],
+                                    val.data[2],
+                                    val.data[3],
+                                ]);
+                                format!("{}", v)
+                            } else {
+                                "Invalid DWORD".to_string()
+                            }
+                        }
+                        _ => format!("{:?}", val.data),
+                    };
+
+                    let bytes = content.as_bytes();
+                    let len = std::cmp::min(buf.len(), bytes.len());
+                    buf[..len].copy_from_slice(&bytes[..len]);
+                    Ok(len)
+                } else {
+                    Ok(0)
+                }
             }
         }
+    /// Write to a handle (Value data)
+    pub fn write(&self, handle: Handle, buf: &[u8]) -> Result<usize, NtStatus> {
+        let keys = self.open_handles.read().unwrap();
+        let node = keys.get(&handle).ok_or(NtStatus::InvalidHandle)?;
 
-        Ok(values)
+        match node {
+            RegNode::Key(_) => Err(NtStatus::FileIsADirectory),
+            RegNode::Value(parent, name) => {
+                // Default to Binary type for raw writes
+                let val = RegValue::binary(buf.to_vec());
+                let db_key = format!("values/{}/{}", parent, name);
+                
+                let encoded = bincode::serialize(&val).map_err(|_| NtStatus::Unsuccessful)?;
+                self.db.insert(db_key, encoded).map_err(|_| NtStatus::Unsuccessful)?;
+                
+                Ok(buf.len())
+            }
+        }
+    }
+
+    /// Get file statistics
+    pub fn fstat(&self, handle: Handle, stat: &mut syscall::Stat) -> Result<usize, NtStatus> {
+        let keys = self.open_handles.read().unwrap();
+        let node = keys.get(&handle).ok_or(NtStatus::InvalidHandle)?;
+
+        match node {
+            RegNode::Key(_) => {
+                stat.st_mode = syscall::MODE_DIR | 0o755;
+                stat.st_size = 0;
+                Ok(0)
+            },
+            RegNode::Value(parent, name) => {
+                stat.st_mode = syscall::MODE_FILE | 0o644;
+                let db_key = format!("values/{}/{}", parent, name);
+                if let Some(data) = self.db.get(&db_key).map_err(|_| NtStatus::Unsuccessful)? {
+                     // We need the ACTUAL size of the data, not the serialized struct?
+                     // Or just the serialized size?
+                     // Usually ls -l usage.
+                     // Let's decode to get real data size.
+                     if let Ok(val) = bincode::deserialize::<RegValue>(&data) {
+                         stat.st_size = val.data.len() as u64;
+                     } else {
+                         stat.st_size = data.len() as u64; 
+                     }
+                } else {
+                    stat.st_size = 0;
+                }
+                Ok(0)
+            }
+        }
     }
 }

@@ -1,16 +1,16 @@
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 use std::fs::File;
 use std::iter;
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::thread;
 
 use parking_lot::{Mutex, ReentrantMutex, RwLock};
 
 use common::io::{Io, Mmio};
-use syscall::error::{Error, Result, EIO};
+use syscall::error::{EIO, Error, Result};
 
 use common::dma::Dma;
 
@@ -19,8 +19,8 @@ pub mod executor;
 pub mod identify;
 pub mod queues;
 
-pub use self::queues::{NvmeCmd, NvmeCmdQueue, NvmeComp, NvmeCompQueue};
 pub use self::identify::{IdentifyControllerData, IdentifyNamespaceData};
+pub use self::queues::{NvmeCmd, NvmeCmdQueue, NvmeComp, NvmeCompQueue};
 
 // Aliases for nvme-driver
 pub type Command = NvmeCmd;
@@ -51,7 +51,9 @@ impl Doorbell {
 }
 unsafe impl Send for Doorbell {}
 unsafe impl Sync for Doorbell {}
+use crate::executor::NvmeExecutor;
 use pcid_interface::PciFunctionHandle;
+use pcid_interface::msi::{MappedMsixRegs, MsiXVector};
 
 /// Used in conjunction with `InterruptMethod`, primarily by the CQ executor.
 #[derive(Debug)]
@@ -224,52 +226,9 @@ impl Nvme {
         self.doorbell_write(2 * (qid as usize) + 1, u32::from(head));
     }
 
-    pub fn admin_sq(&self) -> Dma<[UnsafeCell<NvmeCmd>]> {
-        // HACK: Admin queue is always queue 0
-        let ctxt = self.thread_ctxts.read().get(&0).unwrap().lock();
-        let queues = ctxt.queues.borrow();
-        let (sq, _) = queues.get(&0).unwrap();
-        // Since Dma is not Clone, we can't easily return it.
-        // But nvme-driver's QueuePair::new_admin expects the queue itself.
-        // Wait, nvme-driver expects "sq: Dma<[UnsafeCell<NvmeCmd>]>".
-        // My definition here uses NvmeCmdQueue which WRAPS the Dma.
-        // I need to add accessor methods to NvmeCmdQueue?
-        // Or change NvmeCmdQueue to be pub?
-        // Assuming nvme-driver will change to use Nvme's logic.
-        // But nvme-driver's `scheme.rs` calls `nvme.admin_sq()`.
-        // I need to implement `admin_sq()` if I want to match.
-        // But I don't see `admin_sq` in `nvmed/mod.rs`!
-        // `nvme-driver` might be using a DIFFERENT version of `nvme` crate than what `nvmed` uses?
-        // Or `nvmed` logic is slightly different.
-        // `nvmed` manages queues internally.
-        // `nvme-driver` manages queues externally in `QueuePair`.
-        // This suggests `nvme-driver` was written against a different API.
-        // HOWEVER, I am tasked to FIX `nvme-driver`.
-        // I can change `nvme-driver` to use `nvmed`'s API, OR change `nvme` crate to expose what `nvme-driver` needs.
-        // `nvmed`'s API is higher level (`submit_and_complete_command`).
-        // `nvme-driver` wants low level control (`QueuePair` managing SQ/CQ/Doorbell).
-        // Since `nvmed` ALREADY HAS `Nvme` struct, I should expose necessary parts.
-        // The `Nvme` struct I am pasting HAS `init`, `identify_controller`.
-        // But `nvme-driver` expects `create_io_queues` (which `nvmed` has as `create_io_queues`? NO, it has `init_with_queues`).
-        // `nvme.create_io_queues(num_queues)` is called in `nvme-driver`.
-        // `nvmed` has `init_with_queues` which creates queues internally.
-        
-        // I will Paste the `nvmed` content AS IS.
-        // Then I will likely have to MODIFY `nvme-driver` to adapt to THIS API.
-        // Because `nvmed` is the *working* code.
-        panic!("This method is not implemented in the ported nvmed code. You must adapt the driver.")
-    }
-
-    // Adding helper for admin doorbell which nvme-driver uses
-    pub fn admin_doorbell(&self) -> usize {
-        0
-    }
-    pub fn admin_cq(&self) -> () { // Placeholder
-        ()
-    }
-
-    pub unsafe fn init(&mut self) -> Result<()> { // Returns Result to match standard pattern
-         let thread_ctxts = self.thread_ctxts.get_mut();
+    pub unsafe fn init(&mut self) -> Result<()> {
+        // Returns Result to match standard pattern
+        let thread_ctxts = self.thread_ctxts.get_mut();
         {
             let regs = self.regs.read();
             log::debug!("CAP_LOW: {:X}", regs.cap_low.read());
@@ -517,44 +476,44 @@ impl Nvme {
         q
     }
 
-    pub async fn namespace(&self, nsid: u32) -> Option<IdentifyNamespaceData> {
-        match self.identify_namespace(nsid).await {
-            Ok(data) => Some(data),
-            Err(_) => None,
-        }
+    pub async fn namespace(&self, nsid: u32) -> Option<NvmeNamespace> {
+        Some(self.identify_namespace(nsid).await)
     }
 
-    pub async fn create_io_queues(&self, num_queues: usize) -> Result<Vec<(NvmeCmdQueue, NvmeCompQueue, Doorbell)>> {
+    pub async fn create_io_queues(
+        &self,
+        num_queues: usize,
+    ) -> Result<Vec<(NvmeCmdQueue, NvmeCompQueue, Doorbell)>> {
         let mut queues = Vec::with_capacity(num_queues);
-        
+
         for i in 1..=num_queues {
             let qid = i as u16;
-            
+
             // Create CQ
             let cq = self.create_io_completion_queue(qid, Some(qid)).await;
-            
+
             // Create SQ
             let sq = self.create_io_submission_queue(qid, qid).await;
-            
+
             // Calculate doorbell addresses
             // SQ Tail Doorbell: Base + 0x1000 + (2 * qid) * (4 << dstrd)
             // CQ Head Doorbell: Base + 0x1000 + (2 * qid + 1) * (4 << dstrd)
-            
+
             let regs = self.regs.read();
             let dstrd = (regs.cap_high.read() & 0b1111) as usize;
-            let base = regs as *const _ as usize + 0x1000;
-            
+            let base = &*regs as *const _ as usize + 0x1000;
+
             let sq_offset = (2 * i) * (4 << dstrd);
             let cq_offset = (2 * i + 1) * (4 << dstrd);
-            
+
             let doorbell = Doorbell {
                 sq_ptr: (base + sq_offset) as *mut u32,
                 cq_ptr: (base + cq_offset) as *mut u32,
             };
-            
+
             queues.push((sq, cq, doorbell));
         }
-        
+
         Ok(queues)
     }
 
@@ -575,27 +534,38 @@ impl Nvme {
     pub fn admin_doorbell(&self) -> Doorbell {
         let regs = self.regs.read();
         let dstrd = (regs.cap_high.read() & 0b1111) as usize;
-        let base = regs as *const _ as usize + 0x1000;
-        
+        let base = &*regs as *const _ as usize + 0x1000;
+
         Doorbell {
-            sq_ptr: base as *mut u32, // qid 0
+            sq_ptr: base as *mut u32,                        // qid 0
             cq_ptr: (base + (1 * (4 << dstrd))) as *mut u32, // qid 0 + 1
         }
     }
+    pub async fn init_with_queues(&self) -> BTreeMap<u32, NvmeNamespace> {
         log::trace!("preinit");
 
         let controller_data = self.identify_controller().await;
         let num_queues_wanted = num_cpus::get().min((controller_data.oncs as usize >> 7) & 0x1FF);
 
-        let comp = self.submit_and_complete_admin_command(|cid| {
-            NvmeCmd::set_features_num_queues(cid, num_queues_wanted as u16, num_queues_wanted as u16)
-        }).await;
+        let comp = self
+            .submit_and_complete_admin_command(|cid| {
+                NvmeCmd::set_features_num_queues(
+                    cid,
+                    num_queues_wanted as u16,
+                    num_queues_wanted as u16,
+                )
+            })
+            .await;
 
-        let queues_created = (comp.cdw0 & 0xFFFF) + 1;
+        let queues_created = (comp.command_specific & 0xFFFF) + 1;
         let num_cqs = queues_created;
-        let num_sqs = (comp.cdw0 >> 16) + 1;
+        let num_sqs = (comp.command_specific >> 16) + 1;
 
-        log::info!("Created {} I/O submission queues and {} I/O completion queues", num_sqs, num_cqs);
+        log::info!(
+            "Created {} I/O submission queues and {} I/O completion queues",
+            num_sqs,
+            num_cqs
+        );
 
         let nsids = self.identify_namespace_list(0).await;
 
@@ -608,7 +578,9 @@ impl Nvme {
         }
 
         for i in 1..=num_cqs {
-            let cq = self.create_io_completion_queue(i as u16, Some(i as u16)).await;
+            let cq = self
+                .create_io_completion_queue(i as u16, Some(i as u16))
+                .await;
             log::trace!("created compq {}", i);
             let sq = self.create_io_submission_queue(i as u16, i as u16).await;
             log::trace!("created subq {}", i);
@@ -773,7 +745,8 @@ impl Nvme {
         address: usize,
         size: usize,
     ) -> Result<usize> {
-        self.namespace_rw_phys(namespace, lba, address, size, false).await?;
+        self.namespace_rw_phys(namespace, lba, address, size, false)
+            .await?;
         Ok(size)
     }
 
@@ -784,7 +757,8 @@ impl Nvme {
         address: usize,
         size: usize,
     ) -> Result<usize> {
-        self.namespace_rw_phys(namespace, lba, address, size, true).await?;
+        self.namespace_rw_phys(namespace, lba, address, size, true)
+            .await?;
         Ok(size)
     }
 }

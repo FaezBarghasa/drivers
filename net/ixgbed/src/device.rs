@@ -13,9 +13,10 @@ use crate::ixgbe::*;
 pub struct Intel8259x {
     base: usize,
     size: usize,
-    receive_buffer: [Dma<[u8; 16384]>; 32],
-    receive_ring: Dma<[ixgbe_adv_rx_desc; 32]>,
-    receive_index: usize,
+    receive_buffers: Vec<[Dma<[u8; 16384]>; 32]>,
+    receive_rings: Vec<Dma<[ixgbe_adv_rx_desc; 32]>>,
+    receive_indexes: Vec<usize>,
+    current_rx_queue: usize,
     transmit_buffer: [Dma<[u8; 16384]>; 32],
     transmit_ring: Dma<[ixgbe_adv_tx_desc; 32]>,
     transmit_ring_free: usize,
@@ -25,6 +26,8 @@ pub struct Intel8259x {
     ipv4_address: [u8; 4],
     /// Track bytes in flight for BBRv3
     in_flight_bytes: AtomicU64,
+    /// RDMA Ring Memory
+    ring_mem: *mut crate::ring_defs::IpcRing,
 }
 
 fn wrap_ring(index: usize, ring_size: usize) -> usize {
@@ -76,34 +79,45 @@ impl NetworkAdapter for Intel8259x {
     }
 
     fn read_packet(&mut self, buf: &mut [u8]) -> Result<Option<usize>> {
-        let desc = unsafe {
-            &mut *(self.receive_ring.as_ptr().add(self.receive_index) as *mut ixgbe_adv_rx_desc)
-        };
-
-        let status = unsafe { desc.wb.upper.status_error };
-
-        if (status & IXGBE_RXDADV_STAT_DD) != 0 {
-            if (status & IXGBE_RXDADV_STAT_EOP) == 0 {
-                panic!("increase buffer size or decrease MTU")
-            }
-
-            let data = unsafe {
-                &self.receive_buffer[self.receive_index][..desc.wb.upper.length as usize]
+        // Try all queues starting from current
+        for _ in 0..self.receive_rings.len() {
+            let q_idx = self.current_rx_queue;
+            let idx = self.receive_indexes[q_idx];
+            
+            let desc = unsafe {
+                &mut *(self.receive_rings[q_idx].as_ptr().add(idx) as *mut ixgbe_adv_rx_desc)
             };
-
-            let i = cmp::min(buf.len(), data.len());
-            buf[..i].copy_from_slice(&data[..i]);
-
-            // Track bytes acknowledged
-            self.in_flight_bytes.fetch_sub(i as u64, Ordering::SeqCst);
-
-            desc.read.pkt_addr = self.receive_buffer[self.receive_index].physical() as u64;
-            desc.read.hdr_addr = 0;
-
-            self.write_reg(IXGBE_RDT(0), self.receive_index as u32);
-            self.receive_index = wrap_ring(self.receive_index, self.receive_ring.len());
-
-            return Ok(Some(i));
+    
+            let status = unsafe { desc.wb.upper.status_error };
+    
+            if (status & IXGBE_RXDADV_STAT_DD) != 0 {
+                if (status & IXGBE_RXDADV_STAT_EOP) == 0 {
+                    panic!("increase buffer size or decrease MTU")
+                }
+    
+                let data = unsafe {
+                    &self.receive_buffers[q_idx][idx][..desc.wb.upper.length as usize]
+                };
+    
+                let i = cmp::min(buf.len(), data.len());
+                buf[..i].copy_from_slice(&data[..i]);
+    
+                // Track bytes acknowledged
+                self.in_flight_bytes.fetch_sub(i as u64, Ordering::SeqCst);
+    
+                desc.read.pkt_addr = self.receive_buffers[q_idx][idx].physical() as u64;
+                desc.read.hdr_addr = 0;
+    
+                self.write_reg(IXGBE_RDT(q_idx as u32), idx as u32);
+                self.receive_indexes[q_idx] = wrap_ring(idx, self.receive_rings[q_idx].len());
+                
+                // Advance queue for next read to be round-robin
+                self.current_rx_queue = (self.current_rx_queue + 1) % self.receive_rings.len();
+    
+                return Ok(Some(i));
+            }
+            
+            self.current_rx_queue = (self.current_rx_queue + 1) % self.receive_rings.len();
         }
 
         Ok(None)
@@ -172,23 +186,39 @@ impl NetworkAdapter for Intel8259x {
 
 impl Intel8259x {
     /// Returns an initialized `Intel8259x` on success.
-    pub fn new(base: usize, size: usize) -> Result<Self> {
+    pub fn new(base: usize, size: usize, ring_mem: *mut crate::ring_defs::IpcRing) -> Result<Self> {
+        let num_queues = 4;
+        
+        let mut receive_buffers = Vec::new();
+        let mut receive_rings = Vec::new();
+        let mut receive_indexes = Vec::new();
+
+        for _ in 0..num_queues {
+            receive_buffers.push(
+                (0..32)
+                .map(|_| Ok(unsafe { Dma::zeroed()?.assume_init() }))
+                .collect::<Result<Vec<_>>>()?
+                .try_into()
+                .unwrap_or_else(|_| unreachable!())
+            );
+            receive_rings.push(unsafe { Dma::zeroed()?.assume_init() });
+            receive_indexes.push(0);
+        }
+
         #[rustfmt::skip]
         let mut module = Intel8259x {
             base,
             size,
-            receive_buffer: (0..32)
-                .map(|_| Ok(unsafe { Dma::zeroed()?.assume_init() }))
-                .collect::<Result<Vec<_>>>()?
-                .try_into()
-                .unwrap_or_else(|_| unreachable!()),
-            receive_ring: unsafe { Dma::zeroed()?.assume_init() },
+            receive_buffers,
+            receive_rings,
+            receive_indexes,
+            current_rx_queue: 0,
+            
             transmit_buffer: (0..32)
                 .map(|_| Ok(unsafe { Dma::zeroed()?.assume_init() }))
                 .collect::<Result<Vec<_>>>()?
                 .try_into()
                 .unwrap_or_else(|_| unreachable!()),
-            receive_index: 0,
             transmit_ring: unsafe { Dma::zeroed()?.assume_init() },
             transmit_ring_free: 32,
             transmit_index: 0,
@@ -196,6 +226,7 @@ impl Intel8259x {
             mac_address: [0; 6],
             ipv4_address: [10, 0, 2, 15], // Default QEMU/DHCP address
             in_flight_bytes: AtomicU64::new(0),
+            ring_mem,
         };
 
         module.init();
@@ -203,24 +234,64 @@ impl Intel8259x {
         Ok(module)
     }
 
+    pub fn process_ring(&mut self) {
+        let ring = unsafe { &mut *self.ring_mem };
+        let tail = ring.sq_tail.load(Ordering::Acquire);
+        let mut head = ring.sq_head.load(Ordering::Acquire);
+
+        while head != tail {
+            let idx = (head & ring.sq_mask) as usize;
+            let sqe_ptr =
+                unsafe { (self.ring_mem.add(1) as *const crate::ring_defs::Sqe).add(idx) };
+            let sqe = unsafe { *sqe_ptr };
+
+            println!(
+                "IXGBE: Processing SQE opcode={} addr={:#x} len={}",
+                sqe.opcode, sqe.addr, sqe.len
+            );
+
+            match sqe.opcode {
+                crate::ring_defs::IORING_OP_RDMA_READ => {
+                    println!("IXGBE: RDMA READ request");
+                }
+                crate::ring_defs::IORING_OP_RDMA_WRITE => {
+                    println!("IXGBE: RDMA WRITE request");
+                }
+                _ => {
+                    println!("IXGBE: Unknown opcode {}", sqe.opcode);
+                }
+            }
+
+            head = head.wrapping_add(1);
+        }
+
+        ring.sq_head.store(head, Ordering::Release);
+    }
+
     pub fn irq(&self) -> bool {
         let icr = self.read_reg(IXGBE_EICR);
         icr != 0
     }
 
-    pub fn next_read(&self) -> usize {
-        let desc = unsafe {
-            &*(self.receive_ring.as_ptr().add(self.receive_index) as *const ixgbe_adv_rx_desc)
-        };
+    pub fn next_read(&mut self) -> usize {
+        for _ in 0..self.receive_rings.len() {
+            let q_idx = self.current_rx_queue;
+            let idx = self.receive_indexes[q_idx];
+            let desc = unsafe {
+                &*(self.receive_rings[q_idx].as_ptr().add(idx) as *const ixgbe_adv_rx_desc)
+            };
 
-        let status = unsafe { desc.wb.upper.status_error };
+            let status = unsafe { desc.wb.upper.status_error };
 
-        if (status & IXGBE_RXDADV_STAT_DD) != 0 {
-            if (status & IXGBE_RXDADV_STAT_EOP) == 0 {
-                panic!("increase buffer size or decrease MTU")
+            if (status & IXGBE_RXDADV_STAT_DD) != 0 {
+                if (status & IXGBE_RXDADV_STAT_EOP) == 0 {
+                    panic!("increase buffer size or decrease MTU")
+                }
+
+                return unsafe { desc.wb.upper.length as usize };
             }
-
-            return unsafe { desc.wb.upper.length as usize };
+            
+            self.current_rx_queue = (self.current_rx_queue + 1) % self.receive_rings.len();
         }
 
         0
@@ -359,8 +430,10 @@ impl Intel8259x {
         // section 4.6.8 - init tx
         self.init_tx();
 
-        // start a single receive queue/ring
-        self.start_rx_queue(0);
+        // start rx queues (RSS enabled, 4 queues)
+        for i in 0..4 {
+            self.start_rx_queue(i);
+        }
 
         // start a single transmit queue/ring
         self.start_tx_queue(0);
@@ -384,6 +457,8 @@ impl Intel8259x {
 
     // sections 4.6.7
     /// Initializes the rx queues of this device.
+    // sections 4.6.7
+    /// Initializes the rx queues of this device.
     fn init_rx(&mut self) {
         // disable rx while re-configuring it
         self.clear_flag(IXGBE_RXCTRL, IXGBE_RXCTRL_RXEN);
@@ -401,41 +476,92 @@ impl Intel8259x {
         // accept broadcast packets
         self.write_flag(IXGBE_FCTRL, IXGBE_FCTRL_BAM);
 
-        // configure a single receive queue/ring
-        let i: u32 = 0;
+        // Configure RSS
+        // 1. Redirect Table (RETA)
+        // We have 4 queues. Map hash-to-queue uniformly.
+        // 0..31 -> Queue 0
+        // 32..63 -> Queue 1
+        // 64..95 -> Queue 2
+        // 96..127 -> Queue 3
+        for i in 0..128 {
+            let q_idx = (i / 32) & 0x3; // 0, 1, 2, 3
+            // RETA registers pack 4 entries per register (8 bits each)
+            // But here we access via IXGBE_RETA(i) which seems to imply index 0..31 of registers?
+            // Wait, IXGBE_RETA(i) in ixgbe.rs takes index 0..31. 
+            // 32 registers * 4 entries = 128 entries.
+            // So we need to write to registers.
+            // Let's iterate registers 0..32
+        }
+        
+        for i in 0..32 {
+            // Each register holds 4 entries.
+            // Entry j (0..3) in register i corresponds to global entry 4*i + j
+            let q_idx0 = ((4 * i + 0) / 32) & 0x3;
+            let q_idx1 = ((4 * i + 1) / 32) & 0x3;
+            let q_idx2 = ((4 * i + 2) / 32) & 0x3;
+            let q_idx3 = ((4 * i + 3) / 32) & 0x3;
+            
+            let reta_val = q_idx0 | (q_idx1 << 8) | (q_idx2 << 16) | (q_idx3 << 24);
+            self.write_reg(IXGBE_RETA(i), reta_val);
+        }
 
-        // enable advanced rx descriptors
-        self.write_reg(
-            IXGBE_SRRCTL(i),
-            (self.read_reg(IXGBE_SRRCTL(i)) & !IXGBE_SRRCTL_DESCTYPE_MASK)
-                | IXGBE_SRRCTL_DESCTYPE_ADV_ONEBUF,
+        // 2. RSS Random Key (RSSRK)
+        // Set a random key or default key. 
+        // 40 bytes = 10 registers.
+        let seed: [u32; 10] = [
+            0x6d5a56da, 0x255b0ec2, 0x4167253d, 0x43a38fb0, 0xd0ca2bc,
+            0xdae70b72, 0x9a29e710, 0x37ee0c54, 0x56dd3901, 0x86d06371
+        ];
+        for i in 0..10 {
+            self.write_reg(IXGBE_RSSRK(i), seed[i as usize]);
+        }
+
+        // 3. Multi-Queue Receive Control (MRQC)
+        // Enable RSS and specific hash fields (IPv4, IPv6, TCP, UDP)
+        self.write_reg(IXGBE_MRQC, 
+            IXGBE_MRQC_RSSEN 
+            | IXGBE_MRQC_RSS_FIELD_IPV4 
+            | IXGBE_MRQC_RSS_FIELD_IPV4_TCP 
+            | IXGBE_MRQC_RSS_FIELD_IPV4_UDP 
+            | IXGBE_MRQC_RSS_FIELD_IPV6 
+            | IXGBE_MRQC_RSS_FIELD_IPV6_TCP 
+            | IXGBE_MRQC_RSS_FIELD_IPV6_UDP
         );
-        // let nic drop packets if no rx descriptor is available instead of buffering them
-        self.write_flag(IXGBE_SRRCTL(i), IXGBE_SRRCTL_DROP_EN);
 
-        self.write_reg(IXGBE_RDBAL(i), self.receive_ring.physical() as u32);
+        // Configure all 4 queues
+        for i in 0..4 {
+            let i = i as u32;
+            
+            // enable advanced rx descriptors
+            self.write_reg(
+                IXGBE_SRRCTL(i),
+                (self.read_reg(IXGBE_SRRCTL(i)) & !IXGBE_SRRCTL_DESCTYPE_MASK)
+                    | IXGBE_SRRCTL_DESCTYPE_ADV_ONEBUF,
+            );
+            // drop packets if no descriptor available
+            self.write_flag(IXGBE_SRRCTL(i), IXGBE_SRRCTL_DROP_EN);
 
-        self.write_reg(
-            IXGBE_RDBAH(i),
-            ((self.receive_ring.physical() as u64) >> 32) as u32,
-        );
-        self.write_reg(
-            IXGBE_RDLEN(i),
-            (self.receive_ring.len() * mem::size_of::<ixgbe_adv_rx_desc>()) as u32,
-        );
+            self.write_reg(IXGBE_RDBAL(i), self.receive_rings[i as usize].physical() as u32);
+            self.write_reg(
+                IXGBE_RDBAH(i),
+                ((self.receive_rings[i as usize].physical() as u64) >> 32) as u32,
+            );
+            self.write_reg(
+                IXGBE_RDLEN(i),
+                (self.receive_rings[i as usize].len() * mem::size_of::<ixgbe_adv_rx_desc>()) as u32,
+            );
 
-        // set ring to empty at start
-        self.write_reg(IXGBE_RDH(i), 0);
-        self.write_reg(IXGBE_RDT(i), 0);
+            // set ring to empty at start
+            self.write_reg(IXGBE_RDH(i), 0);
+            self.write_reg(IXGBE_RDT(i), 0);
 
-        // last sentence of section 4.6.7 - set some magic bits
+            // last sentence of section 4.6.7
+            self.clear_flag(IXGBE_DCA_RXCTRL(i), 1 << 12);
+        }
+
         self.write_flag(IXGBE_CTRL_EXT, IXGBE_CTRL_EXT_NS_DIS);
 
-        // probably a broken feature, this flag is initialized with 1 but has to be set to 0
-        self.clear_flag(IXGBE_DCA_RXCTRL(i), 1 << 12);
-
-        // enable promisc mode by default to make testing easier
-        // this has to be done when the rxctrl.rxen bit is not set
+        // enable promisc mode by default
         self.set_promisc(true);
 
         // start rx
@@ -493,13 +619,16 @@ impl Intel8259x {
     /// # Panics
     /// Panics if length of `self.receive_ring` is not a power of 2.
     fn start_rx_queue(&mut self, queue_id: u16) {
-        if self.receive_ring.len() & (self.receive_ring.len() - 1) != 0 {
+        let q_idx = queue_id as usize;
+        let ring_len = self.receive_rings[q_idx].len();
+        
+        if ring_len & (ring_len - 1) != 0 {
             panic!("number of receive queue entries must be a power of 2");
         }
 
-        for i in 0..self.receive_ring.len() {
-            self.receive_ring[i].read.pkt_addr = self.receive_buffer[i].physical() as u64;
-            self.receive_ring[i].read.hdr_addr = 0;
+        for i in 0..ring_len {
+            self.receive_rings[q_idx][i].read.pkt_addr = self.receive_buffers[q_idx][i].physical() as u64;
+            self.receive_rings[q_idx][i].read.hdr_addr = 0;
         }
 
         // enable queue and wait if necessary
@@ -512,7 +641,7 @@ impl Intel8259x {
         // was set to 0 before in the init function
         self.write_reg(
             IXGBE_RDT(u32::from(queue_id)),
-            (self.receive_ring.len() - 1) as u32,
+            (ring_len - 1) as u32,
         );
     }
 
@@ -593,7 +722,8 @@ impl Intel8259x {
     fn enable_msix_interrupt(&mut self, queue_id: u16) {
         // Step 1: The software driver associates between interrupt causes and MSI-X vectors and the
         //throttling timers EITR[n] by programming the IVAR[n] and IVAR_MISC registers.
-        self.set_ivar(0, queue_id, queue_id as u8);
+        // Map all queues to Vector 0 because we only have one IRQ handle
+        self.set_ivar(0, queue_id, 0);
 
         // Step 2: Program SRRCTL[n].RDMTS (per receive queue) if software uses the receive
         // descriptor minimum threshold interrupt
@@ -609,7 +739,8 @@ impl Intel8259x {
 
         // Step 6: Software enables the required interrupt causes by setting the EIMS register
         let mut mask: u32 = self.read_reg(IXGBE_EIMS);
-        mask |= 1 << queue_id;
+        // Enable Vector 0 (which all queues are mapped to)
+        mask |= 1 << 0; 
 
         self.write_reg(IXGBE_EIMS, mask);
     }

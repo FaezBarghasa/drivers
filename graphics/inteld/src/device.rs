@@ -67,30 +67,3 @@ impl IntelDevice {
 }
 
 // Stub modules
-pub mod gtt {}
-pub mod execbuf {}
-pub mod ring {}
-pub mod context {}
-pub mod display {}
-pub mod guc {}
-pub mod huc {}
-
-pub mod gal_backend {
-    use crate::device::IntelDevice;
-    use std::sync::Arc;
-
-    pub struct IntelGalBackend {
-        device: Arc<IntelDevice>,
-    }
-
-    impl IntelGalBackend {
-        pub fn new(device: Arc<IntelDevice>) -> Self {
-            Self { device }
-        }
-
-        pub fn register(&self) -> Result<(), &'static str> {
-            log::info!("Registered with kernel GAL");
-            Ok(())
-        }
-    }
-}

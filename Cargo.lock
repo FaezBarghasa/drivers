@@ -675,6 +675,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "generic-rt"
+version = "0.1.0"
+
+[[package]]
 name = "getrandom"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -684,6 +688,17 @@ dependencies = [
  "libc",
  "r-efi",
  "wasip2",
+]
+
+[[package]]
+name = "goblin"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f27c1b4369c2cd341b5de549380158b105a04c331be5db9110eef7b6d2742134"
+dependencies = [
+ "log",
+ "plain",
+ "scroll 0.11.0",
 ]
 
 [[package]]
@@ -903,7 +918,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.9.4",
  "common",
- "goblin",
+ "goblin 0.8.2",
  "libredox",
  "log",
  "redox-daemon",
@@ -1010,6 +1025,25 @@ dependencies = [
  "num_cpus",
  "parking_lot 0.12.5",
  "pcid",
+ "redox_syscall",
+ "spin 0.9.8",
+]
+
+[[package]]
+name = "nvme-driver"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "bitflags 2.9.4",
+ "crossbeam-queue",
+ "libredox",
+ "log",
+ "num_cpus",
+ "nvme",
+ "parking_lot 0.12.5",
+ "redox-log",
+ "redox-rt",
+ "redox_event",
  "redox_syscall",
  "spin 0.9.8",
 ]
@@ -1331,6 +1365,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "redox-rt"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.9.4",
+ "generic-rt",
+ "goblin 0.7.1",
+ "plain",
+ "redox_syscall",
+]
+
+[[package]]
 name = "redox-scheme"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1526,6 +1571,15 @@ dependencies = [
 
 [[package]]
 name = "scroll"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04c565b551bafbef4157586fa379538366e4385d42082f255bfd96e4fe8519da"
+dependencies = [
+ "scroll_derive 0.11.1",
+]
+
+[[package]]
+name = "scroll"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ab8598aa408498679922eff7fa985c25d58a90771bd6be794434c5277eab1a6"
@@ -1542,6 +1596,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "scroll_derive"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1db149f81d46d2deba7cd3c50772474707729550221e69588478ebf9ada425ae"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.107",
 ]
 
 [[package]]

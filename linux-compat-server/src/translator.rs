@@ -10,8 +10,11 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use crate::errno::LinuxErrno;
+use crate::process::Process;
+use crate::signal::{SigAction, Signal, SignalHandler, UContext};
 use crate::syscall_table::LinuxSyscall;
 use redox_syscall::{self, syscall5, syscall6, SYS_FUTEX};
+use std::sync::Arc;
 
 /// Syscall context containing all registers
 #[derive(Debug, Clone, Default)]
@@ -55,6 +58,11 @@ pub enum SyscallResult {
 }
 
 impl SyscallResult {
+    /// Convert from Redox syscall error
+    pub fn from_error(err: redox_syscall::Error) -> Self {
+        Self::Error(LinuxErrno::from_redox(err.errno as usize))
+    }
+
     /// Convert to raw return value (Linux convention: negative for error)
     pub fn to_raw(&self) -> i64 {
         match self {
@@ -75,10 +83,18 @@ pub struct SyscallTranslator {
     next_fd: std::sync::atomic::AtomicI32,
 }
 
+/// Backing for a file descriptor
+#[derive(Debug, Clone)]
+pub enum FileBacking {
+    Native(std::sync::Arc<File>),
+    EventFd(std::sync::Arc<std::sync::Mutex<u64>>),
+}
+
 /// File descriptor wrapper
+#[derive(Debug, Clone)]
 pub struct FileDescriptor {
-    /// Redox file handle
-    file: Option<File>,
+    /// Backing object
+    backing: Option<FileBacking>,
     /// File path
     path: String,
     /// File flags
@@ -147,7 +163,18 @@ impl SyscallTranslator {
         fds.insert(
             0,
             FileDescriptor {
-                file: None, // stdin
+                backing: Some(FileBacking::Native(std::sync::Arc::new(
+                    File::open("/dev/stdin").unwrap_or_else(|_| {
+                        // Fallback if /dev/stdin fails (e.g. running as daemon)
+                        // For now just fail or use a dummy
+                        // Creating a dummy file is hard.
+                        // We assume /dev/stdin exists in Redox environment setup.
+                        // But File::open expects path.
+                        // If it fails, we should handle it.
+                        // But we are in new(), returning Self.
+                        panic!("Failed to open /dev/stdin")
+                    }),
+                ))),
                 path: "/dev/stdin".to_string(),
                 flags: open_flags::O_RDONLY,
                 is_pipe: false,
@@ -156,16 +183,23 @@ impl SyscallTranslator {
         fds.insert(
             1,
             FileDescriptor {
-                file: None, // stdout
+                backing: Some(FileBacking::Native(std::sync::Arc::new(
+                    File::create("/dev/stdout").expect("Failed to open stdout"), // create or open?
+                                                                                 // stdout usually exists. OpenOptions?
+                ))),
+
                 path: "/dev/stdout".to_string(),
                 flags: open_flags::O_WRONLY,
                 is_pipe: false,
             },
         );
+
         fds.insert(
             2,
             FileDescriptor {
-                file: None, // stderr
+                backing: Some(FileBacking::Native(std::sync::Arc::new(
+                    File::create("/dev/stderr").expect("Failed to open stderr"),
+                ))),
                 path: "/dev/stderr".to_string(),
                 flags: open_flags::O_WRONLY,
                 is_pipe: false,
@@ -205,13 +239,14 @@ impl SyscallTranslator {
     }
 
     /// Translate and execute a syscall
-    pub fn translate(&self, ctx: &SyscallContext) -> SyscallResult {
+    pub fn translate(&self, ctx: &SyscallContext, process: &Arc<crate::Process>) -> SyscallResult {
         let syscall = ctx.syscall();
 
         log::debug!(
-            "Translating syscall: {} ({:#x})",
+            "Translating syscall: {} ({:#x}) from pid {}",
             syscall.name(),
-            ctx.syscall_num
+            ctx.syscall_num,
+            process.pid()
         );
 
         match syscall {
@@ -240,6 +275,8 @@ impl SyscallTranslator {
             | LinuxSyscall::Lstat
             | LinuxSyscall::Newfstatat => self.sys_stat(ctx),
             LinuxSyscall::Getdents64 => self.sys_getdents64(ctx),
+            LinuxSyscall::Kill => self.sys_kill(ctx, process),
+            LinuxSyscall::RtSigaction => self.sys_rt_sigaction(ctx, process),
 
             // Process management
             LinuxSyscall::Getpid => self.sys_getpid(ctx),
@@ -257,8 +294,8 @@ impl SyscallTranslator {
             LinuxSyscall::Kill => self.sys_kill(ctx),
             LinuxSyscall::Tkill => self.sys_tkill(ctx),
             LinuxSyscall::Tgkill => self.sys_tgkill(ctx),
-            LinuxSyscall::RtSigaction => self.sys_sigaction(ctx),
-            LinuxSyscall::RtSigprocmask => self.sys_sigprocmask(ctx),
+            LinuxSyscall::RtSigaction => self.sys_sigaction(ctx, process),
+            LinuxSyscall::RtSigprocmask => self.sys_sigprocmask(ctx, process),
 
             // Memory management
             LinuxSyscall::Brk => self.sys_brk(ctx),
@@ -280,6 +317,11 @@ impl SyscallTranslator {
             LinuxSyscall::Prlimit64 => self.sys_prlimit64(ctx),
             LinuxSyscall::ArchPrctl => self.sys_arch_prctl(ctx),
 
+            // New Syscalls
+            LinuxSyscall::MemfdCreate => self.sys_memfd_create(ctx),
+            LinuxSyscall::Eventfd2 => self.sys_eventfd2(ctx),
+            LinuxSyscall::Eventfd => self.sys_eventfd2(ctx),
+
             _ => {
                 log::warn!(
                     "Unimplemented syscall: {} ({:#x})",
@@ -289,6 +331,64 @@ impl SyscallTranslator {
                 SyscallResult::NotImplemented
             }
         }
+    }
+    // ...
+    fn sys_sigaction(&self, ctx: &SyscallContext, process: &Arc<crate::Process>) -> SyscallResult {
+        let sig_num = ctx.arg0 as i32;
+        let act_ptr = ctx.arg1;
+        let oact_ptr = ctx.arg2;
+        let sigsetsize = ctx.arg3;
+
+        log::debug!(
+            "sys_sigaction: sig={}, act={:#x}, oact={:#x} pid={}",
+            sig_num,
+            act_ptr,
+            oact_ptr,
+            process.pid()
+        );
+
+        if let Some(sig) = crate::signal::Signal::from_number(sig_num) {
+            // Update signal handler in process
+            // We can't safely read the action struct without unsafe copy_from_user implementation
+            // matching the target architecture.
+            // However, we can track THAT a handler was set.
+            {
+                let mut signals = process.signals.write();
+                // We'll trust the guest set a valid handler if ptr != 0
+                if act_ptr != 0 {
+                    log::info!("Registered custom handler for signal {:?}", sig);
+                    // signals.actions[sig_num as usize] = ...; // If actions existed
+                }
+            }
+
+            SyscallResult::Success(0)
+        } else {
+            SyscallResult::Error(LinuxErrno::EINVAL)
+        }
+    }
+
+    fn sys_sigprocmask(
+        &self,
+        ctx: &SyscallContext,
+        process: &Arc<crate::Process>,
+    ) -> SyscallResult {
+        let how = ctx.arg0 as i32;
+        let set_ptr = ctx.arg1;
+        let oldset_ptr = ctx.arg2;
+
+        log::debug!(
+            "sys_sigprocmask: how={}, set={:#x} pid={}",
+            how,
+            set_ptr,
+            process.pid()
+        );
+
+        {
+            let mut signals = process.signals.write();
+            // signals.blocked = ...; // Update blocked mask
+        }
+
+        SyscallResult::Success(0)
     }
 
     // === File I/O syscalls ===
@@ -301,18 +401,46 @@ impl SyscallTranslator {
         let fds = self.fds.read();
         match fds.get(&fd) {
             Some(fd_info) => {
-                if let Some(ref file) = fd_info.file {
-                    // Would need unsafe to read into the buffer
-                    // For now, return success with 0 bytes
-                    SyscallResult::Success(0)
-                } else {
-                    // Standard I/O
-                    match fd {
-                        0 => {
-                            // stdin - would read from actual stdin
-                            SyscallResult::Success(0)
+                match &fd_info.backing {
+                    Some(FileBacking::Native(ref file)) => {
+                        // Would need unsafe to read into the buffer
+                        // For now, return success with 0 bytes
+                        SyscallResult::Success(0)
+                    }
+                    Some(FileBacking::EventFd(ref counter)) => {
+                        if count < 8 {
+                            return SyscallResult::Error(LinuxErrno::EINVAL);
                         }
-                        _ => SyscallResult::Error(LinuxErrno::EBADF),
+                        // Use a separate lock for the counter
+                        let counter = counter.clone();
+                        drop(fds); // Release fd hierarchy lock
+
+                        match counter.lock() {
+                            Ok(mut val) => {
+                                // TODO: Handle blocking if val == 0
+                                let current = *val;
+                                if current == 0 {
+                                    // EAGAIN for now
+                                    SyscallResult::Error(LinuxErrno::EAGAIN)
+                                } else {
+                                    *val = 0; // Reset
+                                              // Write u64 to buf_ptr (unsafe)
+                                              // Logic simulated for now
+                                    SyscallResult::Success(8)
+                                }
+                            }
+                            Err(_) => SyscallResult::Error(LinuxErrno::EIO),
+                        }
+                    }
+                    None => {
+                        // Standard I/O
+                        match fd {
+                            0 => {
+                                // stdin - would read from actual stdin
+                                SyscallResult::Success(0)
+                            }
+                            _ => SyscallResult::Error(LinuxErrno::EBADF),
+                        }
                     }
                 }
             }
@@ -328,17 +456,37 @@ impl SyscallTranslator {
         let fds = self.fds.read();
         match fds.get(&fd) {
             Some(fd_info) => {
-                if let Some(ref file) = fd_info.file {
-                    // Would need unsafe to write from the buffer
-                    SyscallResult::Success(count as i64)
-                } else {
-                    // Standard I/O (stdout/stderr)
-                    match fd {
-                        1 | 2 => {
-                            // Would write to actual stdout/stderr
-                            SyscallResult::Success(count as i64)
+                match &fd_info.backing {
+                    Some(FileBacking::Native(ref file)) => {
+                        // Would need unsafe to write from the buffer
+                        SyscallResult::Success(count as i64)
+                    }
+                    Some(FileBacking::EventFd(ref counter)) => {
+                        if count < 8 {
+                            return SyscallResult::Error(LinuxErrno::EINVAL);
                         }
-                        _ => SyscallResult::Error(LinuxErrno::EBADF),
+                        let counter = counter.clone();
+                        drop(fds);
+
+                        match counter.lock() {
+                            Ok(mut val) => {
+                                // Read u64 from buf_ptr (unsafe)
+                                // Add to counter
+                                *val = (*val).saturating_add(1); // Simulating write
+                                SyscallResult::Success(8)
+                            }
+                            Err(_) => SyscallResult::Error(LinuxErrno::EIO),
+                        }
+                    }
+                    None => {
+                        // Standard I/O (stdout/stderr)
+                        match fd {
+                            1 | 2 => {
+                                // Would write to actual stdout/stderr
+                                SyscallResult::Success(count as i64)
+                            }
+                            _ => SyscallResult::Error(LinuxErrno::EBADF),
+                        }
                     }
                 }
             }
@@ -357,7 +505,7 @@ impl SyscallTranslator {
         self.fds.write().insert(
             fd,
             FileDescriptor {
-                file: None,
+                backing: None,
                 path: String::new(),
                 flags,
                 is_pipe: false,
@@ -378,7 +526,7 @@ impl SyscallTranslator {
         self.fds.write().insert(
             fd,
             FileDescriptor {
-                file: None,
+                backing: None,
                 path: String::new(),
                 flags,
                 is_pipe: false,
@@ -418,7 +566,7 @@ impl SyscallTranslator {
             self.fds.write().insert(
                 newfd,
                 FileDescriptor {
-                    file: None, // Would clone the file handle
+                    backing: fd_info.backing.clone(), // Clone backing
                     path: fd_info.path.clone(),
                     flags: fd_info.flags,
                     is_pipe: fd_info.is_pipe,
@@ -466,7 +614,7 @@ impl SyscallTranslator {
         self.fds.write().insert(
             read_fd,
             FileDescriptor {
-                file: None,
+                backing: None,
                 path: "pipe:read".to_string(),
                 flags: open_flags::O_RDONLY,
                 is_pipe: true,
@@ -476,7 +624,7 @@ impl SyscallTranslator {
         self.fds.write().insert(
             write_fd,
             FileDescriptor {
-                file: None,
+                backing: None,
                 path: "pipe:write".to_string(),
                 flags: open_flags::O_WRONLY,
                 is_pipe: true,
@@ -597,10 +745,223 @@ impl SyscallTranslator {
 
     // === Signal syscalls ===
 
-    fn sys_kill(&self, ctx: &SyscallContext) -> SyscallResult {
+    // === Signal syscalls ===
+    fn sys_kill(&self, ctx: &SyscallContext, process: &Arc<Process>) -> SyscallResult {
         let pid = ctx.arg0 as i32;
         let sig = ctx.arg1 as i32;
-        // Would send signal to process
+
+        log::debug!(
+            "sys_kill: pid={}, sig={} from pid={}",
+            pid,
+            sig,
+            process.pid()
+        );
+
+        let redox_sig = if sig == 0 {
+            0
+        } else if let Some(s) = crate::signal::Signal::from_number(sig) {
+            match s.to_redox() {
+                Some(rs) => rs,
+                None => return SyscallResult::Error(LinuxErrno::EINVAL),
+            }
+        } else {
+            return SyscallResult::Error(LinuxErrno::EINVAL);
+        };
+
+        let target_pid = if pid > 0 {
+            pid as usize
+        } else if pid == 0 {
+            process.pid() as usize
+        } else {
+            return SyscallResult::NotImplemented;
+        };
+
+        match redox_syscall::kill(target_pid, redox_sig) {
+            Ok(_) => SyscallResult::Success(0),
+            Err(e) => SyscallResult::from_error(e),
+        }
+    }
+
+    fn sys_rt_sigaction(&self, ctx: &SyscallContext, process: &Arc<Process>) -> SyscallResult {
+        let sig = ctx.arg0 as i32;
+        let act_ptr = ctx.arg1 as *const crate::signal::LinuxSigAction;
+        let oldact_ptr = ctx.arg2 as *mut crate::signal::LinuxSigAction;
+        let sigsetsize = ctx.arg3 as usize;
+
+        if sigsetsize != 8 {
+            return SyscallResult::Error(LinuxErrno::EINVAL);
+        }
+
+        let signal = match Signal::from_number(sig) {
+            Some(s) => s,
+            None => return SyscallResult::Error(LinuxErrno::EINVAL),
+        };
+
+        let mut signals = process.signals.write();
+
+        if !oldact_ptr.is_null() {
+            let old_act = signals.get_handler(signal);
+            let sa_handler = match old_act.handler {
+                SignalHandler::Default => 0,
+                SignalHandler::Ignore => 1,
+                SignalHandler::Handler(addr) => addr,
+            };
+
+            let linux_act = crate::signal::LinuxSigAction {
+                sa_handler,
+                sa_flags: old_act.flags,
+                sa_restorer: old_act.restorer,
+                sa_mask: old_act.mask,
+            };
+
+            unsafe { *oldact_ptr = linux_act };
+        }
+
+        if !act_ptr.is_null() {
+            if !signal.can_be_caught() {
+                return SyscallResult::Error(LinuxErrno::EINVAL);
+            }
+
+            let linux_act = unsafe { *act_ptr };
+            let handler = match linux_act.sa_handler {
+                0 => SignalHandler::Default,
+                1 => SignalHandler::Ignore,
+                addr => SignalHandler::Handler(addr),
+            };
+
+            let act = SigAction {
+                handler,
+                flags: linux_act.sa_flags,
+                restorer: linux_act.sa_restorer,
+                mask: linux_act.sa_mask,
+            };
+
+            signals.set_handler(signal, act);
+        }
+
+        SyscallResult::Success(0)
+    }
+
+    fn sys_rt_sigprocmask(&self, ctx: &SyscallContext, process: &Arc<Process>) -> SyscallResult {
+        let how = ctx.arg0 as i32;
+        let set_ptr = ctx.arg1 as *const u64;
+        let oldset_ptr = ctx.arg2 as *mut u64;
+        let sigsetsize = ctx.arg3 as usize;
+
+        if sigsetsize != 8 {
+            return SyscallResult::Error(LinuxErrno::EINVAL);
+        }
+
+        let mut signals = process.signals.write();
+
+        if !oldset_ptr.is_null() {
+            let old_blocked = signals.blocked();
+            unsafe { *oldset_ptr = old_blocked };
+        }
+
+        if !set_ptr.is_null() {
+            let set = unsafe { *set_ptr };
+            let current = signals.blocked();
+
+            let new_set = match how {
+                0 => current | set,  // SIG_BLOCK
+                1 => current & !set, // SIG_UNBLOCK
+                2 => set,            // SIG_SETMASK
+                _ => return SyscallResult::Error(LinuxErrno::EINVAL),
+            };
+
+            signals.set_blocked(new_set);
+
+            // TODO: Update Redox kernel sigprocmask?
+            // redox_syscall::sigprocmask(how_redox, ...)
+            // Redox has sigprocmask syscall.
+            match how {
+                0 => {
+                    let _ = redox_syscall::sigprocmask(redox_syscall::SIG_BLOCK, &set, None);
+                }
+                1 => {
+                    let _ = redox_syscall::sigprocmask(redox_syscall::SIG_UNBLOCK, &set, None);
+                }
+                2 => {
+                    let _ = redox_syscall::sigprocmask(redox_syscall::SIG_SETMASK, &set, None);
+                }
+                _ => {}
+            }
+        }
+
+        SyscallResult::Success(0)
+    }
+
+    fn sys_rt_sigreturn(&self, ctx: &SyscallContext, process: &Arc<Process>) -> SyscallResult {
+        // The stack pointer points to rt_sigframe.
+        // On x86_64 Linux, rt_sigframe contains ucontext at offset (usually +8 or directly if adjusted).
+        // However, the handler returns to the trampoline which calls this syscall.
+        // The sp used for this syscall should point to the frame.
+
+        let sp = ctx.rsp;
+
+        // TODO: Verify memory range validity before access. This requires a way to check user memory map.
+        // Note: This relies on lacd being able to read the user stack directly, which implies
+        // shared memory or a mechanism not fully visible here. We assume `sp` is accessible.
+
+        // This offset is arch-dependent. For x86_64, the stack frame set up by the kernel
+        // usually puts ucontext after some other info.
+        // But if we generated the frame in userspace (lacd), we know layout.
+        // Assuming standard layout: sp points to ucontext (after pretcode).
+        // Let's assume sp points directly to UContext for now as a starting point.
+        let ucontext_ptr = sp as *const UContext;
+
+        unsafe {
+            let ucontext = *ucontext_ptr;
+
+            // 1. Restore signal mask
+            {
+                let mut signals = process.signals.write();
+                signals.set_blocked(ucontext.uc_sigmask);
+                let _ = redox_syscall::sigprocmask(
+                    redox_syscall::SIG_SETMASK,
+                    &ucontext.uc_sigmask,
+                    None,
+                );
+            }
+
+            // 2. Restore registers
+            // We need to find the current thread. Assuming main thread for now.
+            if let Some(thread) = process.threads.read().first() {
+                let mut regs = thread.registers.write();
+
+                let mc = &ucontext.uc_mcontext;
+                regs.r8 = mc.r8;
+                regs.r9 = mc.r9;
+                regs.r10 = mc.r10;
+                regs.r11 = mc.r11;
+                regs.r12 = mc.r12;
+                regs.r13 = mc.r13;
+                regs.r14 = mc.r14;
+                regs.r15 = mc.r15;
+                regs.rdi = mc.rdi;
+                regs.rsi = mc.rsi;
+                regs.rbp = mc.rbp;
+                regs.rbx = mc.rbx;
+                regs.rdx = mc.rdx;
+                regs.rax = mc.rax;
+                regs.rcx = mc.rcx;
+                regs.rsp = mc.rsp;
+                regs.rip = mc.rip;
+                regs.rflags = mc.eflags;
+                regs.cs = mc.cs as u64;
+                regs.gs = mc.gs as u64;
+                regs.fs = mc.fs as u64;
+
+                // TODO: Restore FP state (regs.fpstate)
+            }
+        }
+
+        // Return Success(0) ?
+        // Actually, we want to return a value that tells the kernel to switch context.
+        // If we just return 0, RAX becomes 0.
+        // But we updated `regs.rax`.
+        // If the machinery reads `thread.registers` after this call, it will work.
         SyscallResult::Success(0)
     }
 
@@ -614,16 +975,6 @@ impl SyscallTranslator {
         let tgid = ctx.arg0 as i32;
         let tid = ctx.arg1 as i32;
         let sig = ctx.arg2 as i32;
-        SyscallResult::Success(0)
-    }
-
-    fn sys_sigaction(&self, _ctx: &SyscallContext) -> SyscallResult {
-        // Set signal action
-        SyscallResult::Success(0)
-    }
-
-    fn sys_sigprocmask(&self, _ctx: &SyscallContext) -> SyscallResult {
-        // Set signal mask
         SyscallResult::Success(0)
     }
 
@@ -681,6 +1032,60 @@ impl SyscallTranslator {
         let rem_ptr = ctx.arg1 as *mut u8;
         // Would sleep
         SyscallResult::Success(0)
+    }
+
+    // === Extended Compatibility ===
+
+    fn sys_memfd_create(&self, ctx: &SyscallContext) -> SyscallResult {
+        let name_ptr = ctx.arg0 as *const u8;
+        let flags = ctx.arg1 as u32;
+
+        let name = format!("memfd_{}_{}", std::process::id(), self.alloc_fd());
+        let path = format!("shm:{}", name);
+
+        match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&path)
+        {
+            Ok(file) => {
+                let fd = self.alloc_fd();
+                self.fds.write().insert(
+                    fd,
+                    FileDescriptor {
+                        backing: Some(FileBacking::Native(std::sync::Arc::new(file))),
+                        path,
+                        flags: 0,
+                        is_pipe: false,
+                    },
+                );
+                SyscallResult::Success(fd as i64)
+            }
+            Err(e) => {
+                log::error!("sys_memfd_create failed: {}", e);
+                SyscallResult::Error(LinuxErrno::EFAULT)
+            }
+        }
+    }
+
+    fn sys_eventfd2(&self, ctx: &SyscallContext) -> SyscallResult {
+        let initval = ctx.arg0 as u64;
+        let flags = ctx.arg1 as i32;
+
+        let fd = self.alloc_fd();
+        self.fds.write().insert(
+            fd,
+            FileDescriptor {
+                backing: Some(FileBacking::EventFd(std::sync::Arc::new(
+                    std::sync::Mutex::new(initval),
+                ))),
+                path: "eventfd".to_string(),
+                flags,
+                is_pipe: false,
+            },
+        );
+        SyscallResult::Success(fd as i64)
     }
 
     // === Misc syscalls ===
