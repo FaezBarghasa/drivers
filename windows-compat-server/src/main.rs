@@ -61,6 +61,7 @@ use std::sync::{Arc, RwLock};
 mod errno;
 mod ntdll;
 mod pe_loader;
+mod sxs;
 mod webview;
 mod dotnet;
 
@@ -69,72 +70,7 @@ pub use pe_loader::PeLoader;
 pub use syscall_table::NtSyscall;
 pub use translator::NtSyscallTranslator;
 
-// ... (existing code)
 
-    /// Resolve and load imported DLLs (SxS)
-    fn resolve_imports(&self, pe: &pe_loader::PeInfo, exe_path: &str) -> Result<(), NtStatus> {
-        // Get directory of executable
-        let exe_dir = std::path::Path::new(exe_path)
-            .parent()
-            .unwrap_or(std::path::Path::new("/"));
-
-        for import in &pe.imports {
-            let dll_name = &import.dll_name;
-            log::debug!("Resolving import: {}", dll_name);
-            
-            // Check for Builtin Middleware
-            if dll_name.eq_ignore_ascii_case("EdgeWebView2Loader.dll") {
-                log::info!("Middleware: Activating WebView2 Shim for {}", dll_name);
-                // In a full implementation, we would register the export table of webview.rs
-                // to the process's address space. 
-                // For now, we confirm the resolution via the middleware.
-                crate::webview::CreateCoreWebView2EnvironmentWithOptions(
-                    std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null()
-                );
-                continue;
-            }
-
-            if dll_name.eq_ignore_ascii_case("mscoree.dll") || dll_name.eq_ignore_ascii_case("hostfxr.dll") {
-                 log::info!("Middleware: Activating .NET Shim for {}", dll_name);
-                 crate::dotnet::_CorExeMain();
-                 continue;
-            }
-
-            // Search Order:
-            // 1. VxS / WinSxS (Simulated)
-            // 2. Application Directory
-            // 3. System32
-
-            // 1. Simulated WinSxS check
-            // For now, just check specific known DLLs or a flat folder
-            let sxs_path = format!("/windows/winsxs/{}", dll_name);
-            if std::path::Path::new(&sxs_path).exists() {
-                // In a real implementation, we would load this DLL into the process address space
-                // self.load_dll(process, &sxs_path)?;
-                continue;
-            }
-
-            // 2. App Dir
-            let app_path = exe_dir.join(dll_name);
-            if app_path.exists() {
-                // self.load_dll(process, &app_path)?;
-                continue;
-            }
-
-            // 3. System32
-            let sys32_path = format!("/windows/System32/{}", dll_name);
-            if std::path::Path::new(&sys32_path).exists() {
-                // self.load_dll(process, &sys32_path)?;
-                continue;
-            }
-
-            log::warn!("Failed to resolve DLL: {}", dll_name);
-            // Don't fail hard for now as we don't have a full filesystem
-        }
-
-        Ok(())
-    }
-}
     /// Root directory for Windows filesystem mapping
     pub windows_root: String,
     /// Maximum number of concurrent Windows processes
@@ -251,6 +187,8 @@ pub struct WacServer {
     pub translator: Arc<NtSyscallTranslator>,
     /// Active processes
     pub processes: RwLock<BTreeMap<u32, Arc<WinProcess>>>,
+    /// SxS Activation Context manager
+    pub activation_ctx: Arc<sxs::ActivationContext>,
     /// Next PID
     next_pid: AtomicU32,
 }
@@ -258,9 +196,11 @@ pub struct WacServer {
 impl WacServer {
     /// Create a new WAC server
     pub fn new(config: WacConfig) -> Self {
+        let winsxs_root = format!("{}/winsxs", config.windows_root);
         Self {
             loader: Arc::new(PeLoader::new(config.windows_root.clone())),
             translator: Arc::new(NtSyscallTranslator::new()),
+            activation_ctx: Arc::new(sxs::ActivationContext::new(winsxs_root)),
             config,
             processes: RwLock::new(BTreeMap::new()),
             next_pid: AtomicU32::new(1),
@@ -311,8 +251,13 @@ impl WacServer {
         // Register the process
         self.register_process(process.clone());
 
+        // Load SxS manifest for this executable (external .manifest file)
+        if let Err(e) = self.activation_ctx.load_for_exe(path) {
+            log::warn!("SxS: Failed to load manifest for '{}': {:?}", path, e);
+        }
+
         // Resolve Imports (SxS)
-        self.resolve_imports(&pe_info, path)?;
+        self.resolve_imports(&process, &pe_info, path)?;
 
         // TODO: Actually spawn the process via kernel
         // This would involve:
@@ -324,9 +269,45 @@ impl WacServer {
         Ok(pid)
     }
 
+    /// Load a DLL into the process
+    fn load_dll(&self, process: &WinProcess, path: &str) -> Result<usize, NtStatus> {
+        // Check if already loaded
+        {
+            let modules = process.modules.read().unwrap();
+            if let Some(module) = modules.iter().find(|m| m.path == path) {
+                return Ok(module.image_base);
+            }
+        }
+        
+        log::info!("Loading DLL: {}", path);
+
+        // Load PE
+        let pe = self.loader.load(path)?;
+        
+        // Record module
+        let module = LoadedModule {
+            name: std::path::Path::new(path).file_name().unwrap_or_default().to_string_lossy().to_string(),
+            path: path.to_string(),
+            image_base: pe.image_base,
+            entry_point: pe.entry_point,
+            size: pe.size_of_image,
+        };
+        
+        {
+            let mut modules = process.modules.write().unwrap();
+            modules.push(module);
+        }
+
+        // Recursively load dependencies
+        // We pass the path of the DLL as the reference path for its imports
+        self.resolve_imports(process, &pe, path)?;
+
+        Ok(pe.image_base)
+    }
+
     /// Resolve and load imported DLLs (SxS)
-    fn resolve_imports(&self, pe: &pe_loader::PeInfo, exe_path: &str) -> Result<(), NtStatus> {
-        // Get directory of executable
+    fn resolve_imports(&self, process: &WinProcess, pe: &pe_loader::PeInfo, exe_path: &str) -> Result<(), NtStatus> {
+        // Get directory of executable/DLL
         let exe_dir = std::path::Path::new(exe_path)
             .parent()
             .unwrap_or(std::path::Path::new("/"));
@@ -335,36 +316,64 @@ impl WacServer {
             let dll_name = &import.dll_name;
             log::debug!("Resolving import: {}", dll_name);
 
+            // Check for Builtin Middleware - these are handled entirely by shims
+            if dll_name.eq_ignore_ascii_case("EdgeWebView2Loader.dll") {
+                log::info!("Middleware: Activating WebView2 Shim for {}", dll_name);
+                // Safety: all pointer args are null (no-op initialization path)
+                unsafe {
+                    crate::webview::CreateCoreWebView2EnvironmentWithOptions(
+                        std::ptr::null(),
+                        std::ptr::null(),
+                        std::ptr::null(),
+                        std::ptr::null(),
+                    );
+                }
+                continue;
+            }
+
+            if dll_name.eq_ignore_ascii_case("mscoree.dll")
+                || dll_name.eq_ignore_ascii_case("hostfxr.dll")
+                || dll_name.eq_ignore_ascii_case("hostpolicy.dll")
+            {
+                log::info!("Middleware: Activating .NET Shim for {}", dll_name);
+                crate::dotnet::_CorExeMain();
+                continue;
+            }
+
             // Search Order:
-            // 1. VxS / WinSxS (Simulated)
+            // 1. SxS Activation Context (manifest-declared assemblies in WinSxS)
             // 2. Application Directory
             // 3. System32
 
-            // 1. Simulated WinSxS check
-            // For now, just check specific known DLLs or a flat folder
-            let sxs_path = format!("/windows/winsxs/{}", dll_name);
-            if std::path::Path::new(&sxs_path).exists() {
-                // In a real implementation, we would load this DLL into the process address space
-                // self.load_dll(process, &sxs_path)?;
+            // 1. SxS Activation Context
+            if let Some(sxs_path) = self.activation_ctx.resolve_dll(dll_name) {
+                self.load_dll(process, &sxs_path.to_string_lossy())?;
                 continue;
             }
 
-            // 2. App Dir
+            // 1b. Flat WinSxS fallback (no manifest, but DLL exists in winsxs root)
+            let flat_sxs_path = format!("{}/winsxs/{}", self.config.windows_root, dll_name);
+            if std::path::Path::new(&flat_sxs_path).exists() {
+                self.load_dll(process, &flat_sxs_path)?;
+                continue;
+            }
+
+            // 2. Application Directory
             let app_path = exe_dir.join(dll_name);
             if app_path.exists() {
-                // self.load_dll(process, &app_path)?;
+                self.load_dll(process, &app_path.to_string_lossy())?;
                 continue;
             }
 
             // 3. System32
-            let sys32_path = format!("/windows/System32/{}", dll_name);
+            let sys32_path = format!("{}/System32/{}", self.config.windows_root, dll_name);
             if std::path::Path::new(&sys32_path).exists() {
-                // self.load_dll(process, &sys32_path)?;
+                self.load_dll(process, &sys32_path)?;
                 continue;
             }
 
-            log::warn!("Failed to resolve DLL: {}", dll_name);
-            // Don't fail hard for now as we don't have a full filesystem
+            log::warn!("Failed to resolve DLL: {} (not found in SxS, app dir, or System32)", dll_name);
+            // Non-fatal: continue loading other imports
         }
 
         Ok(())
