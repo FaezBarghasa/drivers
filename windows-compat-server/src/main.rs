@@ -64,6 +64,8 @@ mod pe_loader;
 mod sxs;
 mod webview;
 mod dotnet;
+mod proton;
+mod bench;
 
 pub use errno::NtStatus;
 pub use pe_loader::PeLoader;

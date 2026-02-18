@@ -9,7 +9,7 @@ license = "MIT"
 [dependencies]
 redox_syscall = "0.4"
 redox-scheme = "0.2"
-redox_daemon = "0.1"
+redox_daemon = { package = "redox-daemon", version = "0.1" }
 spin = "0.9"
 bitflags = "2"
 sled = "0.34"
