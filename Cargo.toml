@@ -62,6 +62,9 @@ members = [
     # Linux Application Compatibility layer
     "linux-compat-server",
 
+    # Windows Application Compatibility layer
+    "windows-compat-server",
+
     # Embedded HAL and BSP
     "redox-hal",
     "redox-bsp-generic",
