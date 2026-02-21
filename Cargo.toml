@@ -69,6 +69,8 @@ members = [
     "redox-hal",
     "redox-bsp-generic",
     "ai/redoxml",
+    "graphics/inteld",
+    "vmm-virtio",
 ]
 
 [profile.release]
@@ -78,3 +80,4 @@ lto = "fat"
 mio = { git = "https://gitlab.redox-os.org/redox-os/mio.git", branch = "redox-unix" }
 orbclient = { git = "https://gitlab.redox-os.org/redox-os/orbclient.git", version = "0.3.44" }
 redox-daemon = { git = "https://gitlab.redox-os.org/redox-os/redox-daemon.git" }
+redox-scheme = { path = "../redox-scheme" }

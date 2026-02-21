@@ -898,6 +898,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "inteld"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.9.4",
+ "common",
+ "driver-graphics",
+ "libredox",
+ "log",
+ "pcid",
+ "redox-daemon",
+ "redox-scheme 0.6.2",
+ "redox_event",
+ "redox_syscall 0.5.18",
+ "spin 0.9.8",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1469,8 +1486,6 @@ dependencies = [
 [[package]]
 name = "redox-scheme"
 version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c00025a04f76fdcf72c15f10c7a12d9f2fdde93e539be9a57d5d632c4158a9e"
 dependencies = [
  "libredox",
  "redox_syscall 0.5.18",
@@ -2293,6 +2308,10 @@ dependencies = [
  "toml 0.8.23",
  "virtio-core",
 ]
+
+[[package]]
+name = "vmm-virtio"
+version = "0.1.0"
 
 [[package]]
 name = "vte"

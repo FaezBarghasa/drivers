@@ -7,6 +7,7 @@ pub struct IntelDevice {
     device_id: u16,
     generation: u8,
     gem: Option<Arc<crate::gem::GemManager>>,
+    pub mmio: crate::mmio::MmioRegs,
 }
 
 impl IntelDevice {
@@ -16,6 +17,7 @@ impl IntelDevice {
             device_id: 0x0000,
             generation: 12, // Gen12 (Xe)
             gem: None,
+            mmio: unsafe { crate::mmio::MmioRegs::new(0 as *mut u8, 4096) },
         })
     }
 

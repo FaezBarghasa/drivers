@@ -1,4 +1,5 @@
 use crate::context::Context;
+use crate::device::IntelDevice;
 use std::sync::Arc;
 
 pub struct ExecBuffer {
@@ -6,16 +7,17 @@ pub struct ExecBuffer {
     pub batch_len: u64,
 }
 
-pub fn submit(context: &Arc<Context>, _execbuf: &ExecBuffer) -> Result<(), &'static str> {
-    // Check if the context has access to any cores
+pub fn submit(
+    context: &Arc<Context>,
+    device: &Arc<IntelDevice>,
+    _execbuf: &ExecBuffer,
+) -> Result<(), &'static str> {
     if context.params.core_mask == 0 {
         return Err("No GPU cores allocated to this context");
     }
 
-    // Apply strict hardware isolation (masking)
-    context.apply_mask();
+    context.apply_mask(device);
 
-    // Actual submission logic (stubbed for non-hardware environment)
     log::trace!(
         "Submitting batch for Context {} (Mask: {:x})",
         context.id,

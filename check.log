@@ -1,0 +1,678 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/jrad/RustroverProjects/redoxos/drivers/nvme-core/Cargo.toml
+workspace: /home/jrad/RustroverProjects/redoxos/drivers/Cargo.toml
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/jrad/RustroverProjects/redoxos/drivers/nvme-driver/Cargo.toml
+workspace: /home/jrad/RustroverProjects/redoxos/drivers/Cargo.toml
+warning: virtual workspace defaulting to `resolver = "1"` despite one or more workspace members being on edition 2024 which implies `resolver = "3"`
+note: to keep the current resolver, specify `workspace.resolver = "1"` in the workspace root's manifest
+note: to use the edition 2024 resolver, specify `workspace.resolver = "3"` in the workspace root's manifest
+note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+warning: /home/jrad/RustroverProjects/redoxos/drivers/nvme-driver/Cargo.toml: unused manifest key: profile.release.pcid
+warning: Patch `mio v0.6.14 (https://gitlab.redox-os.org/redox-os/mio.git?branch=redox-unix#c9a70849)` was not used in the crate graph.
+Check that the patched package version and available features are compatible
+with the dependency requirements. If the patch has a different version from
+what is locked in the Cargo.lock file, run `cargo update` to use the new
+version. This may also occur with an optional dependency that is not enabled.
+warning: unused import: `libredox::error::Error as LError`
+ --> /home/jrad/RustroverProjects/redoxos/redox-scheme/src/wrappers.rs:5:5
+  |
+5 | use libredox::error::Error as LError;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `redox-scheme` (lib) generated 1 warning (run `cargo fix --lib -p redox-scheme` to apply 1 suggestion)
+warning: missing documentation for a function
+ --> common/src/logger.rs:3:1
+  |
+3 | pub fn output_level() -> log::LevelFilter {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+note: the lint level is defined here
+ --> common/src/lib.rs:5:9
+  |
+5 | #![warn(missing_docs)]
+  |         ^^^^^^^^^^^^
+
+warning: missing documentation for a function
+ --> common/src/logger.rs:8:1
+  |
+8 | pub fn file_level() -> log::LevelFilter {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `common` (lib) generated 2 warnings
+    Checking inteld v0.1.0 (/home/jrad/RustroverProjects/redoxos/drivers/graphics/inteld)
+error[E0583]: file not found for module `display`
+  --> graphics/inteld/src/main.rs:10:1
+   |
+10 | mod display;
+   | ^^^^^^^^^^^^
+   |
+   = help: to create the module `display`, create file "graphics/inteld/src/display.rs" or "graphics/inteld/src/display/mod.rs"
+   = note: if there is a `mod display` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `gtt`
+  --> graphics/inteld/src/main.rs:14:1
+   |
+14 | mod gtt;
+   | ^^^^^^^^
+   |
+   = help: to create the module `gtt`, create file "graphics/inteld/src/gtt.rs" or "graphics/inteld/src/gtt/mod.rs"
+   = note: if there is a `mod gtt` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `guc`
+  --> graphics/inteld/src/main.rs:15:1
+   |
+15 | mod guc;
+   | ^^^^^^^^
+   |
+   = help: to create the module `guc`, create file "graphics/inteld/src/guc.rs" or "graphics/inteld/src/guc/mod.rs"
+   = note: if there is a `mod guc` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `huc`
+  --> graphics/inteld/src/main.rs:16:1
+   |
+16 | mod huc;
+   | ^^^^^^^^
+   |
+   = help: to create the module `huc`, create file "graphics/inteld/src/huc.rs" or "graphics/inteld/src/huc/mod.rs"
+   = note: if there is a `mod huc` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `ring`
+  --> graphics/inteld/src/main.rs:19:1
+   |
+19 | mod ring;
+   | ^^^^^^^^^
+   |
+   = help: to create the module `ring`, create file "graphics/inteld/src/ring.rs" or "graphics/inteld/src/ring/mod.rs"
+   = note: if there is a `mod ring` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `alloc`
+ --> graphics/inteld/src/partition.rs:7:5
+  |
+7 | use alloc::{vec, vec::Vec};
+  |     ^^^^^ use of unresolved module or unlinked crate `alloc`
+  |
+  = help: add `extern crate alloc` to use the `alloc` crate
+
+error[E0432]: unresolved import `alloc`
+ --> graphics/inteld/src/partition.rs:7:5
+  |
+7 | use alloc::{vec, vec::Vec};
+  |     ^^^^^ help: a similar path exists: `std::alloc`
+
+error[E0412]: cannot find type `Arc` in this scope
+ --> graphics/inteld/src/gal_backend.rs:4:13
+  |
+4 |     device: Arc<IntelDevice>,
+  |             ^^^ not found in this scope
+  |
+help: consider importing one of these structs
+  |
+1 + use crate::Arc;
+  |
+1 + use std::sync::Arc;
+  |
+
+error[E0412]: cannot find type `IntelDevice` in this scope
+ --> graphics/inteld/src/gal_backend.rs:4:17
+  |
+4 |     device: Arc<IntelDevice>,
+  |                 ^^^^^^^^^^^ not found in this scope
+  |
+help: consider importing this struct through its public re-export
+  |
+1 + use crate::IntelDevice;
+  |
+
+error[E0412]: cannot find type `Mutex` in this scope
+ --> graphics/inteld/src/gal_backend.rs:5:15
+  |
+5 |     contexts: Mutex<BTreeMap<usize, Arc<Context>>>,
+  |               ^^^^^ not found in this scope
+  |
+help: consider importing one of these items
+  |
+1 + use std::sync::Mutex;
+  |
+1 + use std::sync::nonpoison::Mutex;
+  |
+1 + use spin::Mutex;
+  |
+1 + use spin::lock_api::Mutex;
+  |
+  = and 1 other candidate
+
+error[E0412]: cannot find type `BTreeMap` in this scope
+ --> graphics/inteld/src/gal_backend.rs:5:21
+  |
+5 |     contexts: Mutex<BTreeMap<usize, Arc<Context>>>,
+  |                     ^^^^^^^^ not found in this scope
+  |
+help: consider importing this struct
+  |
+1 + use std::collections::BTreeMap;
+  |
+
+error[E0412]: cannot find type `Arc` in this scope
+ --> graphics/inteld/src/gal_backend.rs:5:37
+  |
+5 |     contexts: Mutex<BTreeMap<usize, Arc<Context>>>,
+  |                                     ^^^ not found in this scope
+  |
+help: consider importing one of these structs
+  |
+1 + use crate::Arc;
+  |
+1 + use std::sync::Arc;
+  |
+
+error[E0412]: cannot find type `Context` in this scope
+ --> graphics/inteld/src/gal_backend.rs:5:41
+  |
+5 |     contexts: Mutex<BTreeMap<usize, Arc<Context>>>,
+  |                                         ^^^^^^^ not found in this scope
+  |
+help: consider importing one of these structs
+  |
+1 + use crate::context::Context;
+  |
+1 + use std::task::Context;
+  |
+
+error[E0412]: cannot find type `Mutex` in this scope
+ --> graphics/inteld/src/gal_backend.rs:6:14
+  |
+6 |     next_id: Mutex<usize>,
+  |              ^^^^^ not found in this scope
+  |
+help: consider importing one of these items
+  |
+1 + use std::sync::Mutex;
+  |
+1 + use std::sync::nonpoison::Mutex;
+  |
+1 + use spin::Mutex;
+  |
+1 + use spin::lock_api::Mutex;
+  |
+  = and 1 other candidate
+
+error[E0412]: cannot find type `Mutex` in this scope
+ --> graphics/inteld/src/gal_backend.rs:7:22
+  |
+7 |     partition_table: Mutex<PartitionTable>,
+  |                      ^^^^^ not found in this scope
+  |
+help: consider importing one of these items
+  |
+1 + use std::sync::Mutex;
+  |
+1 + use std::sync::nonpoison::Mutex;
+  |
+1 + use spin::Mutex;
+  |
+1 + use spin::lock_api::Mutex;
+  |
+  = and 1 other candidate
+
+error[E0412]: cannot find type `Arc` in this scope
+  --> graphics/inteld/src/gal_backend.rs:11:24
+   |
+11 |     pub fn new(device: Arc<IntelDevice>) -> Self {
+   |                        ^^^ not found in this scope
+   |
+help: consider importing one of these structs
+   |
+ 1 + use crate::Arc;
+   |
+ 1 + use std::sync::Arc;
+   |
+
+error[E0412]: cannot find type `IntelDevice` in this scope
+  --> graphics/inteld/src/gal_backend.rs:11:28
+   |
+11 |     pub fn new(device: Arc<IntelDevice>) -> Self {
+   |                            ^^^^^^^^^^^ not found in this scope
+   |
+help: consider importing this struct through its public re-export
+   |
+ 1 + use crate::IntelDevice;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `Mutex`
+  --> graphics/inteld/src/gal_backend.rs:16:23
+   |
+16 |             contexts: Mutex::new(BTreeMap::new()),
+   |                       ^^^^^ use of undeclared type `Mutex`
+   |
+help: consider importing one of these items
+   |
+ 1 + use std::sync::Mutex;
+   |
+ 1 + use std::sync::nonpoison::Mutex;
+   |
+ 1 + use spin::Mutex;
+   |
+ 1 + use spin::lock_api::Mutex;
+   |
+   = and 1 other candidate
+
+error[E0433]: failed to resolve: use of undeclared type `BTreeMap`
+  --> graphics/inteld/src/gal_backend.rs:16:34
+   |
+16 |             contexts: Mutex::new(BTreeMap::new()),
+   |                                  ^^^^^^^^ use of undeclared type `BTreeMap`
+   |
+help: consider importing this struct
+   |
+ 1 + use std::collections::BTreeMap;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `Mutex`
+  --> graphics/inteld/src/gal_backend.rs:17:22
+   |
+17 |             next_id: Mutex::new(0),
+   |                      ^^^^^ use of undeclared type `Mutex`
+   |
+help: consider importing one of these items
+   |
+ 1 + use std::sync::Mutex;
+   |
+ 1 + use std::sync::nonpoison::Mutex;
+   |
+ 1 + use spin::Mutex;
+   |
+ 1 + use spin::lock_api::Mutex;
+   |
+   = and 1 other candidate
+
+error[E0433]: failed to resolve: use of undeclared type `Mutex`
+  --> graphics/inteld/src/gal_backend.rs:18:30
+   |
+18 |             partition_table: Mutex::new(partition_table),
+   |                              ^^^^^ use of undeclared type `Mutex`
+   |
+help: consider importing one of these items
+   |
+ 1 + use std::sync::Mutex;
+   |
+ 1 + use std::sync::nonpoison::Mutex;
+   |
+ 1 + use spin::Mutex;
+   |
+ 1 + use spin::lock_api::Mutex;
+   |
+   = and 1 other candidate
+
+error[E0405]: cannot find trait `SchemeMut` in this scope
+  --> graphics/inteld/src/gal_backend.rs:30:6
+   |
+30 | impl SchemeMut for IntelGalBackend {
+   |      ^^^^^^^^^ not found in this scope
+   |
+help: consider importing this trait
+   |
+ 1 + use syscall::SchemeMut;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> graphics/inteld/src/gal_backend.rs:47:59
+   |
+47 |         let mut next_id = self.next_id.lock().map_err(|_| Error::new(EINVAL))?;
+   |                                                           ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 1 + use std::error::Error;
+   |
+ 1 + use std::fmt::Error;
+   |
+ 1 + use std::io::Error;
+   |
+ 1 + use core::error::Error;
+   |
+   = and 3 other candidates
+
+error[E0425]: cannot find value `EINVAL` in this scope
+  --> graphics/inteld/src/gal_backend.rs:47:70
+   |
+47 |         let mut next_id = self.next_id.lock().map_err(|_| Error::new(EINVAL))?;
+   |                                                                      ^^^^^^ not found in this scope
+   |
+help: consider importing one of these constants
+   |
+ 1 + use libredox::errno::EINVAL;
+   |
+ 1 + use syscall::EINVAL;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> graphics/inteld/src/gal_backend.rs:55:26
+   |
+55 |             .map_err(|_| Error::new(EINVAL))?;
+   |                          ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 1 + use std::error::Error;
+   |
+ 1 + use std::fmt::Error;
+   |
+ 1 + use std::io::Error;
+   |
+ 1 + use core::error::Error;
+   |
+   = and 3 other candidates
+
+error[E0425]: cannot find value `EINVAL` in this scope
+  --> graphics/inteld/src/gal_backend.rs:55:37
+   |
+55 |             .map_err(|_| Error::new(EINVAL))?;
+   |                                     ^^^^^^ not found in this scope
+   |
+help: consider importing one of these constants
+   |
+ 1 + use libredox::errno::EINVAL;
+   |
+ 1 + use syscall::EINVAL;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> graphics/inteld/src/gal_backend.rs:62:24
+   |
+62 |             return Err(Error::new(EINVAL));
+   |                        ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 1 + use std::error::Error;
+   |
+ 1 + use std::fmt::Error;
+   |
+ 1 + use std::io::Error;
+   |
+ 1 + use core::error::Error;
+   |
+   = and 3 other candidates
+
+error[E0425]: cannot find value `EINVAL` in this scope
+  --> graphics/inteld/src/gal_backend.rs:62:35
+   |
+62 |             return Err(Error::new(EINVAL));
+   |                                   ^^^^^^ not found in this scope
+   |
+help: consider importing one of these constants
+   |
+ 1 + use libredox::errno::EINVAL;
+   |
+ 1 + use syscall::EINVAL;
+   |
+
+error[E0422]: cannot find struct, variant or union type `ContextParams` in this scope
+  --> graphics/inteld/src/gal_backend.rs:69:22
+   |
+69 |         let params = ContextParams {
+   |                      ^^^^^^^^^^^^^ not found in this scope
+   |
+help: consider importing this struct
+   |
+ 1 + use crate::context::ContextParams;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `Arc`
+  --> graphics/inteld/src/gal_backend.rs:74:23
+   |
+74 |         let context = Arc::new(Context::new(id as u32, params));
+   |                       ^^^ use of undeclared type `Arc`
+   |
+help: consider importing one of these structs
+   |
+ 1 + use crate::Arc;
+   |
+ 1 + use std::sync::Arc;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `Context`
+  --> graphics/inteld/src/gal_backend.rs:74:32
+   |
+74 |         let context = Arc::new(Context::new(id as u32, params));
+   |                                ^^^^^^^ use of undeclared type `Context`
+   |
+help: consider importing one of these structs
+   |
+ 1 + use crate::context::Context;
+   |
+ 1 + use std::task::Context;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> graphics/inteld/src/gal_backend.rs:88:26
+   |
+88 |             .map_err(|_| Error::new(EINVAL))?
+   |                          ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 1 + use std::error::Error;
+   |
+ 1 + use std::fmt::Error;
+   |
+ 1 + use std::io::Error;
+   |
+ 1 + use core::error::Error;
+   |
+   = and 3 other candidates
+
+error[E0425]: cannot find value `EINVAL` in this scope
+  --> graphics/inteld/src/gal_backend.rs:88:37
+   |
+88 |             .map_err(|_| Error::new(EINVAL))?
+   |                                     ^^^^^^ not found in this scope
+   |
+help: consider importing one of these constants
+   |
+ 1 + use libredox::errno::EINVAL;
+   |
+ 1 + use syscall::EINVAL;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> graphics/inteld/src/gal_backend.rs:97:26
+   |
+97 |             .map_err(|_| Error::new(EINVAL))?
+   |                          ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 1 + use std::error::Error;
+   |
+ 1 + use std::fmt::Error;
+   |
+ 1 + use std::io::Error;
+   |
+ 1 + use core::error::Error;
+   |
+   = and 3 other candidates
+
+error[E0425]: cannot find value `EINVAL` in this scope
+  --> graphics/inteld/src/gal_backend.rs:97:37
+   |
+97 |             .map_err(|_| Error::new(EINVAL))?
+   |                                     ^^^^^^ not found in this scope
+   |
+help: consider importing one of these constants
+   |
+ 1 + use libredox::errno::EINVAL;
+   |
+ 1 + use syscall::EINVAL;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+  --> graphics/inteld/src/gal_backend.rs:99:20
+   |
+99 |             .ok_or(Error::new(ENOENT))?;
+   |                    ^^^^^ use of undeclared type `Error`
+   |
+help: consider importing one of these items
+   |
+ 1 + use std::error::Error;
+   |
+ 1 + use std::fmt::Error;
+   |
+ 1 + use std::io::Error;
+   |
+ 1 + use core::error::Error;
+   |
+   = and 3 other candidates
+
+error[E0425]: cannot find value `ENOENT` in this scope
+  --> graphics/inteld/src/gal_backend.rs:99:31
+   |
+99 |             .ok_or(Error::new(ENOENT))?;
+   |                               ^^^^^^ not found in this scope
+   |
+help: consider importing one of these constants
+   |
+ 1 + use libredox::errno::ENOENT;
+   |
+ 1 + use syscall::ENOENT;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> graphics/inteld/src/gal_backend.rs:104:26
+    |
+104 |             .map_err(|_| Error::new(EINVAL))?
+    |                          ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  1 + use std::error::Error;
+    |
+  1 + use std::fmt::Error;
+    |
+  1 + use std::io::Error;
+    |
+  1 + use core::error::Error;
+    |
+    = and 3 other candidates
+
+error[E0425]: cannot find value `EINVAL` in this scope
+   --> graphics/inteld/src/gal_backend.rs:104:37
+    |
+104 |             .map_err(|_| Error::new(EINVAL))?
+    |                                     ^^^^^^ not found in this scope
+    |
+help: consider importing one of these constants
+    |
+  1 + use libredox::errno::EINVAL;
+    |
+  1 + use syscall::EINVAL;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> graphics/inteld/src/gal_backend.rs:113:57
+    |
+113 |         let contexts = self.contexts.lock().map_err(|_| Error::new(EINVAL))?;
+    |                                                         ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  1 + use std::error::Error;
+    |
+  1 + use std::fmt::Error;
+    |
+  1 + use std::io::Error;
+    |
+  1 + use core::error::Error;
+    |
+    = and 3 other candidates
+
+error[E0425]: cannot find value `EINVAL` in this scope
+   --> graphics/inteld/src/gal_backend.rs:113:68
+    |
+113 |         let contexts = self.contexts.lock().map_err(|_| Error::new(EINVAL))?;
+    |                                                                    ^^^^^^ not found in this scope
+    |
+help: consider importing one of these constants
+    |
+  1 + use libredox::errno::EINVAL;
+    |
+  1 + use syscall::EINVAL;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> graphics/inteld/src/gal_backend.rs:114:47
+    |
+114 |         let context = contexts.get(&id).ok_or(Error::new(ENOENT))?;
+    |                                               ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  1 + use std::error::Error;
+    |
+  1 + use std::fmt::Error;
+    |
+  1 + use std::io::Error;
+    |
+  1 + use core::error::Error;
+    |
+    = and 3 other candidates
+
+error[E0425]: cannot find value `ENOENT` in this scope
+   --> graphics/inteld/src/gal_backend.rs:114:58
+    |
+114 |         let context = contexts.get(&id).ok_or(Error::new(ENOENT))?;
+    |                                                          ^^^^^^ not found in this scope
+    |
+help: consider importing one of these constants
+    |
+  1 + use libredox::errno::ENOENT;
+    |
+  1 + use syscall::ENOENT;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `Error`
+   --> graphics/inteld/src/gal_backend.rs:124:22
+    |
+124 |         .map_err(|_| Error::new(EINVAL))?;
+    |                      ^^^^^ use of undeclared type `Error`
+    |
+help: consider importing one of these items
+    |
+  1 + use std::error::Error;
+    |
+  1 + use std::fmt::Error;
+    |
+  1 + use std::io::Error;
+    |
+  1 + use core::error::Error;
+    |
+    = and 3 other candidates
+
+error[E0425]: cannot find value `EINVAL` in this scope
+   --> graphics/inteld/src/gal_backend.rs:124:33
+    |
+124 |         .map_err(|_| Error::new(EINVAL))?;
+    |                                 ^^^^^^ not found in this scope
+    |
+help: consider importing one of these constants
+    |
+  1 + use libredox::errno::EINVAL;
+    |
+  1 + use syscall::EINVAL;
+    |
+
+warning: unused import: `Ordering`
+ --> graphics/inteld/src/context.rs:1:36
+  |
+1 | use std::sync::atomic::{AtomicU64, Ordering};
+  |                                    ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+Some errors have detailed explanations: E0405, E0412, E0422, E0425, E0432, E0433, E0583.
+For more information about an error, try `rustc --explain E0405`.
+warning: `inteld` (bin "inteld") generated 1 warning
+error: could not compile `inteld` (bin "inteld") due to 45 previous errors; 1 warning emitted

@@ -14,7 +14,11 @@ mod gem;
 mod gtt;
 mod guc;
 mod huc;
+mod mmio;
+mod partition;
+mod partition_tests;
 mod ring;
+mod tests;
 
 use device::IntelDevice;
 use gal_backend::IntelGalBackend;
@@ -31,7 +35,7 @@ fn daemon(daemon: Daemon) -> ! {
     log::info!("Intel GPU Driver starting...");
 
     // Initialize PCI device
-    let device = match IntelDevice::new() {
+    let mut device = match IntelDevice::new() {
         Ok(dev) => {
             log::info!(
                 "Intel GPU detected: {:04x}:{:04x} (Gen{})",
@@ -39,7 +43,7 @@ fn daemon(daemon: Daemon) -> ! {
                 dev.device_id(),
                 dev.generation()
             );
-            Arc::new(dev)
+            dev
         }
         Err(e) => {
             log::error!("Failed to initialize Intel GPU: {}", e);
@@ -76,6 +80,8 @@ fn daemon(daemon: Daemon) -> ! {
         log::error!("Failed to initialize display: {}", e);
         std::process::exit(1);
     }
+
+    let device = Arc::new(device);
 
     // Create GAL backend
     let gal_backend = Arc::new(IntelGalBackend::new(device.clone()));

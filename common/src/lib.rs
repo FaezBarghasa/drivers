@@ -17,7 +17,7 @@ mod logger;
 /// The Scatter Gather List (SGL) API for drivers.
 pub mod sgl;
 
-pub use logger::{output_level, file_level, setup_logging};
+pub use logger::{file_level, output_level, setup_logging};
 
 /// Specifies the write behavior for a specific region of memory
 ///
@@ -252,7 +252,8 @@ unsafe fn sys_call(fd: usize, buf: &mut [u8], metadata: &[u64]) -> Result<usize>
         buf.len(),
         metadata.len(),
         metadata.as_ptr() as usize,
-    )?)
+    )
+    .map_err(|e| Error::new(e.errno))?)
 }
 
 /// Instructs the kernel to enable I/O ports for this (usermode) process (x86-specific).
@@ -265,7 +266,8 @@ pub fn acquire_port_io_rights() -> Result<()> {
     extern "C" {
         fn redox_cur_thrfd_v0() -> usize;
     }
-    let kernel_fd = syscall::dup(unsafe { redox_cur_thrfd_v0() }, b"open_via_dup")?;
+    let kernel_fd = syscall::dup(unsafe { redox_cur_thrfd_v0() }, b"open_via_dup")
+        .map_err(|e| Error::new(e.errno))?;
     let res = unsafe { sys_call(kernel_fd, &mut [], &[ProcSchemeVerb::Iopl as u64]) };
     let _ = syscall::close(kernel_fd);
     res?;

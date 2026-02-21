@@ -22,10 +22,9 @@ libredox = "0.1.3"
 redox-scheme = "0.6.2"
 redox-daemon = "0.1"
 redox_event = "0.4.1"
-redox_syscall = "0.5"
+redox_syscall = { version = "0.5", features = ["std"] }
 
 [features]
 default = []
 debug-logging = []
 
-[workspace]
