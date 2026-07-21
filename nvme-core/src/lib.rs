@@ -18,6 +18,8 @@ pub mod cmd;
 pub mod executor;
 pub mod identify;
 pub mod queues;
+pub mod runqueue;
+pub mod nvmeof;
 
 pub use self::identify::{IdentifyControllerData, IdentifyNamespaceData};
 pub use self::queues::{NvmeCmd, NvmeCmdQueue, NvmeComp, NvmeCompQueue};

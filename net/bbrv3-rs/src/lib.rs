@@ -20,6 +20,9 @@
 
 extern crate alloc;
 
+pub mod xdp;
+pub mod nat;
+
 use alloc::collections::VecDeque;
 use core::cmp::{max, min};
 use core::fmt;
