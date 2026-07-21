@@ -23,6 +23,7 @@ extern crate alloc;
 pub mod xdp;
 pub mod nat;
 pub mod gptp;
+pub mod ble_mesh;
 
 use alloc::collections::VecDeque;
 use core::cmp::{max, min};
