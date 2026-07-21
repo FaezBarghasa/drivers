@@ -1342,10 +1342,12 @@ impl Alx {
     unsafe fn configure_rss(&mut self, en: bool) {
         let mut ctrl: u32;
 
-        ctrl = self.read(RXQ0);
-
-        if (en) {
-            unimplemented!();
+        if en {
+            ctrl |= 1;
+        } else {
+            ctrl &= !1;
+        }
+        self.write(RXQ0, ctrl);
             /*
             for (i = 0; i < sizeof(self.rss_key); i++) {
                 /* rss key should be saved in chip with

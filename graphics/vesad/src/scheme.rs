@@ -46,16 +46,14 @@ impl GraphicsAdapter for FbAdapter {
     }
 
     fn create_cursor_framebuffer(&mut self) -> VesadCursor {
-        unimplemented!("Vesad does not support this function");
+        VesadCursor
     }
 
     fn map_cursor_framebuffer(&mut self, _cursor: &Self::Cursor) -> *mut u8 {
-        unimplemented!("Vesad does not support this function");
+        core::ptr::null_mut()
     }
 
-    fn handle_cursor(&mut self, _cursor: &CursorPlane<VesadCursor>, _dirty_fb: bool) {
-        unimplemented!("Vesad does not support this function");
-    }
+    fn handle_cursor(&mut self, _cursor: &CursorPlane<VesadCursor>, _dirty_fb: bool) {}
 }
 
 pub struct FrameBuffer {
