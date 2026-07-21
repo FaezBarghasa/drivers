@@ -76,7 +76,18 @@ fn deamon(daemon: redox_daemon::Daemon) -> Result<(), Box<dyn std::error::Error>
         device.transport.ack_driver_feature(VIRTIO_NET_F_MAC);
         mac
     } else {
-        unimplemented!()
+        // Fallback to a locally administered unicast MAC address if not provided by device
+        let fallback_mac = [0x52, 0x54, 0x00, 0x12, 0x34, 0x56];
+        log::warn!(
+            "virtio-net: VIRTIO_NET_F_MAC not provided, using fallback MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            fallback_mac[0],
+            fallback_mac[1],
+            fallback_mac[2],
+            fallback_mac[3],
+            fallback_mac[4],
+            fallback_mac[5]
+        );
+        fallback_mac
     };
 
     device.transport.finalize_features();
