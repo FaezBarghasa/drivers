@@ -1340,6 +1340,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
+name = "powerd"
+version = "0.1.0"
+dependencies = [
+ "redox-scheme 0.11.2",
+ "redox_syscall 0.9.0",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "proc-macro-error-attr2"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1638,6 +1648,16 @@ source = "git+https://gitlab.redox-os.org/redox-os/rehid.git#43fe46199b2948cac2d
 dependencies = [
  "hidreport",
  "log",
+]
+
+[[package]]
+name = "rild"
+version = "0.1.0"
+dependencies = [
+ "redox-scheme 0.11.2",
+ "redox_syscall 0.9.0",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -38,6 +38,8 @@ members = [
     "input/usbhidd",
     "input/i2chid-touchd",
     "sensors/sensord",
+    "telephony/rild",
+    "power/powerd",
 
     "net/alxd",
     "net/driver-network",
