@@ -1,4 +1,4 @@
-//! AetherOS / Redox OS Audio Daemon (`audiod`)
+//! Redox OS Audio Daemon (`audiod`)
 //!
 //! Provides the system-wide `:audio` scheme endpoint for user applications,
 //! supporting low-latency sound mixing, volume control, and hardware routing.
@@ -36,7 +36,7 @@ fn daemon(daemon: Daemon) -> ! {
         common::file_level(),
     );
 
-    log::info!("Starting AetherOS Audio Daemon (audiod)...");
+    log::info!("Starting Redox OS Audio Daemon (audiod)...");
 
     let socket_fd = match libredox::call::open(
         ":audio",
@@ -73,7 +73,7 @@ fn daemon(daemon: Daemon) -> ! {
     let mut mixer = AudioMixer::new();
     let mut mix_buffer = vec![0u8; 4096];
 
-    log::info!("AetherOS Audio Daemon initialized successfully.");
+    log::info!("Redox OS Audio Daemon initialized successfully.");
 
     for event in event_queue.map(|e| e.expect("audiod event error").user_data) {
         match event {

@@ -1,4 +1,4 @@
-//! Low-Latency Audio Mixer & Resampler Engine for AetherOS / Redox OS
+//! Low-Latency Audio Mixer & Resampler Engine for Redox OS
 //!
 //! Provides multi-client audio stream mixing, per-channel volume control,
 //! format normalization (16-bit stereo PCM @ 44.1kHz / 48kHz), and sample clamping.

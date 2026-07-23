@@ -485,6 +485,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "drmd"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "libredox",
+ "log",
+ "redox-daemon",
+ "redox_event",
+ "redox_syscall 0.5.18",
+]
+
+[[package]]
 name = "dxvk"
 version = "0.1.0"
 dependencies = [
