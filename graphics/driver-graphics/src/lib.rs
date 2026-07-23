@@ -1,5 +1,3 @@
-#![feature(slice_as_array)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{self, Write};

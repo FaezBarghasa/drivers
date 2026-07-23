@@ -142,6 +142,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "audiod"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "libredox",
+ "log",
+ "redox-daemon",
+ "redox_event",
+ "redox_syscall 0.5.18",
+ "spin 0.9.8",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
