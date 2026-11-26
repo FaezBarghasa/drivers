@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 use log::{debug, info, trace, warn};
 use pci_types::capability::PciCapability;
 use pci_types::{
-    Bar as TyBar, CommandRegister, EndpointHeader, HeaderType, PciAddress,
+    device_type::DeviceType,
+    Bar as TyBar, CommandRegister, ConfigRegionAccess, EndpointHeader, HeaderType, PciAddress,
     PciHeader as TyPciHeader, PciPciBridgeHeader,
 };
 use redox_scheme::{RequestKind, SignalBehavior};
@@ -240,8 +241,10 @@ fn main_inner(daemon: redox_daemon::Daemon) -> ! {
         });
         drop(tx); // Close main thread sender
 
-        for (func, new_buses) in rx {
-            tree.insert(func.inner.addr, func);
+        for (func_opt, new_buses) in rx {
+            if let Some(func) = func_opt {
+                tree.insert(func.inner.addr, func);
+            }
             bus_nums.extend(new_buses);
         }
     }
@@ -277,95 +280,6 @@ fn main_inner(daemon: redox_daemon::Daemon) -> ! {
 
     println!("pcid: exit");
     std::process::exit(0);
-}
-
-fn scan_device_pure(pcie: &Pcie, bus_num: u8, dev_num: u8) -> Option<Vec<(Func, Vec<u8>)>> {
-    let mut results = Vec::new();
-
-    for func_num in 0..8 {
-        let header = TyPciHeader::new(PciAddress::new(0, bus_num, dev_num, func_num));
-
-        let (vendor_id, device_id) = header.id(pcie);
-        if vendor_id == 0xffff && device_id == 0xffff {
-            if func_num == 0 {
-                // trace!("PCI {:>02X}:{:>02X}: no dev", bus_num, dev_num);
-                return None;
-            }
-            continue;
-        }
-
-        let (revision, class, subclass, interface) = header.revision_and_class(pcie);
-        let full_device_id = pcid_interface::FullDeviceId {
-            vendor_id,
-            device_id,
-            class,
-            subclass,
-            interface,
-            revision,
-        };
-
-        info!("PCI {} {}", header.address(), full_device_id.display());
-
-        let has_multiple_functions = header.has_multiple_functions(pcie);
-
-        let mut new_buses = Vec::new();
-
-        let endpoint_header = match header.header_type(pcie) {
-            HeaderType::Endpoint => Some(EndpointHeader::from_header(header, pcie).unwrap()),
-            HeaderType::PciPciBridge => {
-                let bridge_header = PciPciBridgeHeader::from_header(header, pcie).unwrap();
-                new_buses.push(bridge_header.secondary_bus_number(pcie));
-                // Bridges might also have capabilities? Usually EndpointHeader is for Endpoints.
-                // But PCID structure `Func` expects `EndpointHeader`.
-                // Existing code passed `EndpointHeader` via `handle_parsed_header` ONLY for `HeaderType::Endpoint`.
-                // Bridges were just adding bus nums.
-                // Does `pcid` not expose bridges as functions?
-                // The original code:
-                /*
-                match header.header_type(pcie) {
-                    HeaderType::Endpoint => { handle_parsed_header(...) }
-                    HeaderType::PciPciBridge => { bus_nums.push(...) }
-                }
-                */
-                // So bridges are NOT added to the `tree` in the original code.
-                None
-            }
-            ty => {
-                warn!("pcid: unknown header type: {ty:?}");
-                None
-            }
-        };
-
-        if let Some(endpoint_header) = endpoint_header {
-            let func = build_func(pcie, endpoint_header, full_device_id);
-            results.push((func, new_buses));
-        } else if !new_buses.is_empty() {
-            // Bridge case: we don't add to tree, but we return new buses
-            // We need to return the new buses even if no func is added.
-            // But my return type is `Vec<(Func, Vec<u8>)>`.
-            // If I return dummy func? No.
-            // I should chanage return type or logic.
-            // Actually, the original code DID NOT insert Func for bridges.
-            // So I only need to return buses.
-
-            // Let's change return type to `Vec<ScanResult>` enum?
-            // Or `(Vec<Func>, Vec<u8>)`.
-            // `results` accumulator.
-            // `scan_device_pure` -> `(Vec<Func>, Vec<u8>)`.
-        }
-
-        if func_num == 0 && !has_multiple_functions {
-            break;
-        }
-    }
-
-    // Refined logic for return
-    // I cannot easily restart this replace block logic without defining `build_func` helper.
-    // I will extract `handle_parsed_header` logic into `build_func`.
-    // And updated `scan_device_pure` to return `(Vec<Func>, Vec<u8>)`.
-
-    // I'll rewrite the function below correctly.
-    None // Placeholder to break replace block compilation check for now? No, I must write valid code.
 }
 
 fn build_func(
